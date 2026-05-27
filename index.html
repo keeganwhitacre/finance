@@ -9,7 +9,7 @@
   <meta name="apple-mobile-web-app-title" content="Atlas">
   <meta name="theme-color" content="#f2f2f7" media="(prefers-color-scheme: light)">
   <meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)">
-  <title>Finance</title>
+  <title>Atlas Financial OS</title>
   
   <style>
     /* ══════════════════════════════════════════════════════════════════
@@ -369,20 +369,22 @@
 
       <!-- Safe to Spend Core Widget -->
       <div id="gapWidget" class="active-hero hero-budget" style="margin-bottom: 24px; cursor: default;">
-        <div style="display: flex; justify-content: space-between;">
-          <div class="hero-eyebrow" style="margin-bottom: 0;">
+        <div style="display: flex; justify-content: space-between; align-items: flex-start;">
+          <div class="hero-eyebrow" style="margin-bottom: 0; display: flex; align-items: center; gap: 8px;">
             Left to Spend
             <!-- Pacing Badge -->
             <div id="pacingBadge" class="pacing-badge neutral">Calculating...</div>
           </div>
+          <!-- REPAIRED HTML ELEMENT -->
+          <div class="hero-eyebrow" id="gapMonthLabel" style="color: var(--text-1); margin-bottom: 0;">This Month</div>
         </div>
-        <div id="gapAmount" class="hero-title-big" style="margin-bottom: 0; font-size: 48px;">$0.00</div>
+        <div id="gapAmount" class="hero-title-big" style="margin-bottom: 0; font-size: 48px; margin-top: 8px;">$0.00</div>
         
-        <div style="font-size: 13px; color: var(--text-2); font-weight: 600; margin-top: -6px;">
+        <div style="font-size: 13px; color: var(--text-2); font-weight: 600; margin-top: -4px;">
           Excludes Fixed Bills and Savings
         </div>
 
-        <div class="prog-row" style="margin-top: 8px;">
+        <div class="prog-row" style="margin-top: 10px;">
           <div class="prog-track" style="background: rgba(0,0,0,0.1);"><div id="gapProgressBar" class="prog-fill" style="width: 0%; background: var(--text-1);"></div></div>
           <span class="prog-pct" id="gapPercentage">0% Used</span>
         </div>
@@ -403,7 +405,7 @@
         <label class="lrow" style="cursor: pointer; padding: 16px; background: var(--bg-surface2);">
           <div class="lrow-left">
             <div class="lrow-title" style="color: var(--accent); font-size: 16px;">Import Statement (CSV)</div>
-            <div class="lrow-sub">Auto-sync Apple Card or standard statements</div>
+            <div class="lrow-sub">Smart parsing for Apple Card & more</div>
           </div>
           <div class="lrow-right" style="display: flex; align-items: center; color: var(--accent);">
             <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" x2="12" y1="3" y2="15"/></svg>
@@ -694,24 +696,28 @@
   let toastTmr;
   function toast(msg) {
     const el = document.getElementById('toast');
+    if (!el) return;
     el.textContent = msg; el.classList.add('on');
     clearTimeout(toastTmr);
     toastTmr = setTimeout(() => el.classList.remove('on'), 2500);
   }
+  
+  // Safe DOM updater to prevent fatal UI crashes
+  function setSafeText(id, text) {
+    const el = document.getElementById(id);
+    if (el) el.innerText = text;
+  }
+  function setSafeHTML(id, html) {
+    const el = document.getElementById(id);
+    if (el) el.innerHTML = html;
+  }
 
   // --- STATE & SETTINGS MANAGEMENT ---
   let state = {
-    accounts: [
-      { id: 'a1', name: 'Checking Account', balance: 4500, rate: 0, isLiability: false },
-      { id: 'a2', name: 'High Yield Savings', balance: 18500, rate: 4.4, isLiability: false },
-      { id: 'a3', name: 'Main Credit Card', balance: 1250, rate: 24.99, isLiability: true }
-    ],
-    subs: [
-      { id: 's1', name: 'Netflix', cost: 15.49 },
-      { id: 's2', name: 'Spotify', cost: 10.99 }
-    ],
+    accounts: [],
+    subs: [],
     transactions: [],
-    budgets: { 'Groceries': 400, 'Restaurants': 300, 'Transportation': 150, 'Shopping': 200 },
+    budgets: { 'Groceries': 400, 'Restaurants': 300 },
     monthlyIncome: 6500,
     monthlySavingsTarget: 1500,
     currentMonth: '',
@@ -733,7 +739,7 @@
   };
   
   const formatMonthDisplay = (yyyyMm) => {
-    if (!yyyyMm) return "All Time";
+    if (!yyyyMm || typeof yyyMm !== 'string' || !yyyyMm.includes('-')) return "Unknown Month";
     const [year, month] = yyyMm.split('-');
     const date = new Date(year, parseInt(month) - 1);
     return date.toLocaleString('default', { month: 'short', year: 'numeric' });
@@ -743,39 +749,49 @@
 
   // --- INIT & STORAGE ---
   function loadData() {
-    const saved = localStorage.getItem('atlas_data_v9');
+    const saved = localStorage.getItem('atlas_data_v10');
     if (saved) {
-      const parsed = JSON.parse(saved);
-      state = { ...state, ...parsed };
-      if (!state.netWorthHistory) state.netWorthHistory = {};
+      try {
+        const parsed = JSON.parse(saved);
+        state = { ...state, ...parsed };
+      } catch(e){}
     }
+    
+    // Auto-repair missing objects
+    if (!state.netWorthHistory) state.netWorthHistory = {};
+    if (!state.budgets) state.budgets = {};
+    if (!state.transactions) state.transactions = [];
 
     const savedSettings = localStorage.getItem('atlas_settings_v2');
-    if (savedSettings) appSettings = { ...appSettings, ...JSON.parse(savedSettings) };
+    if (savedSettings) {
+        try { appSettings = { ...appSettings, ...JSON.parse(savedSettings) }; } catch(e){}
+    }
     applyTheme();
     
-    if (!state.currentMonth) {
-      if (state.transactions.length > 0) state.currentMonth = state.transactions[0].month;
-      else {
+    if (!state.currentMonth || state.currentMonth === "undefined") {
+      if (state.transactions.length > 0 && state.transactions[0] && state.transactions[0].month) {
+          state.currentMonth = state.transactions[0].month;
+      } else {
         const d = new Date();
         state.currentMonth = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
       }
     }
     
-    // Bind Inputs
-    document.getElementById('monthlyIncomeInput').value = state.monthlyIncome;
-    document.getElementById('monthlyIncomeInput').addEventListener('change', (e) => {
-      state.monthlyIncome = Number(e.target.value) || 0; saveData(); renderAll();
-    });
+    // Bind Inputs safely
+    const incInput = document.getElementById('monthlyIncomeInput');
+    if(incInput) {
+        incInput.value = state.monthlyIncome || 0;
+        incInput.addEventListener('change', (e) => { state.monthlyIncome = Number(e.target.value) || 0; saveData(); renderAll(); });
+    }
 
-    document.getElementById('monthlySavingsInput').value = state.monthlySavingsTarget || 0;
-    document.getElementById('monthlySavingsInput').addEventListener('change', (e) => {
-      state.monthlySavingsTarget = Number(e.target.value) || 0; saveData(); renderAll();
-    });
+    const savInput = document.getElementById('monthlySavingsInput');
+    if(savInput) {
+        savInput.value = state.monthlySavingsTarget || 0;
+        savInput.addEventListener('change', (e) => { state.monthlySavingsTarget = Number(e.target.value) || 0; saveData(); renderAll(); });
+    }
 
-    document.getElementById('monthSelect').addEventListener('change', (e) => {
-      state.currentMonth = e.target.value; saveData(); renderAll();
-    });
+    const mSelect = document.getElementById('monthSelect');
+    if(mSelect) mSelect.addEventListener('change', (e) => { state.currentMonth = e.target.value; saveData(); renderAll(); });
     
     updateHistoryPoint();
     renderAll();
@@ -783,12 +799,13 @@
 
   function saveData() { 
     updateHistoryPoint();
-    localStorage.setItem('atlas_data_v9', JSON.stringify(state)); 
+    localStorage.setItem('atlas_data_v10', JSON.stringify(state)); 
   }
   function saveSettings() { localStorage.setItem('atlas_settings_v2', JSON.stringify(appSettings)); }
 
   // Record historical snapshot
   function updateHistoryPoint() {
+    if(!state.accounts || !state.netWorthHistory) return;
     const assets = state.accounts.filter(a => !a.isLiability).reduce((sum, a) => sum + parseFloat(a.balance), 0);
     const debts = state.accounts.filter(a => a.isLiability).reduce((sum, a) => sum + parseFloat(a.balance), 0);
     const d = new Date();
@@ -799,43 +816,46 @@
   // --- SETTINGS LOGIC ---
   function applyTheme() {
     document.documentElement.setAttribute('data-theme', appSettings.theme);
-    document.getElementById('set-theme').value = appSettings.theme;
+    const themeSelect = document.getElementById('set-theme');
+    if(themeSelect) themeSelect.value = appSettings.theme;
   }
-  document.getElementById('set-theme').addEventListener('change', (e) => { appSettings.theme = e.target.value; applyTheme(); saveSettings(); });
-  document.getElementById('set-gemini-key').addEventListener('change', (e) => { appSettings.geminiKey = e.target.value.trim(); saveSettings(); toast('API Key saved'); });
-  document.getElementById('set-github-token').addEventListener('change', (e) => { appSettings.githubToken = e.target.value.trim(); saveSettings(); });
-  document.getElementById('set-gist-id').addEventListener('change', (e) => { appSettings.gistId = e.target.value.trim(); saveSettings(); });
   
-  document.getElementById('btn-export-data').addEventListener('click', () => {
-    const blob = new Blob([JSON.stringify(state, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a'); a.href = url; a.download = 'atlas-backup.json'; a.click();
-    URL.revokeObjectURL(url); toast('Backup Exported');
-  });
-  
-  document.getElementById('input-import-data').addEventListener('change', e => {
-    const file = e.target.files[0]; if (!file) return;
-    const reader = new FileReader();
-    reader.onload = ev => {
-      try {
-        const d = JSON.parse(ev.target.result);
-        if (d.accounts || d.transactions) { state = { ...state, ...d }; saveData(); renderAll(); toast('Data Imported Successfully'); }
-      } catch { toast('Import failed — invalid file'); }
-    };
-    reader.readAsText(file); e.target.value = '';
-  });
-  
-  document.getElementById('btn-clear-data').addEventListener('click', () => {
-    if (!confirm('Clear all local data? This cannot be undone.')) return;
-    state.accounts = []; state.transactions = []; state.subs = []; state.netWorthHistory = {};
-    state.budgets = { 'Groceries': 400, 'Restaurants': 300 };
-    saveData(); renderAll(); closeAllModals(); toast('Local Data Cleared');
-  });
-
-  // --- TAB SWITCHING ---
-  document.getElementById('bottom-status-nav').addEventListener('click', e => {
-    const btn = e.target.closest('[data-s]'); if (!btn) return;
-    switchTab(btn.dataset.s);
+  // Safely bind settings events
+  document.addEventListener('DOMContentLoaded', () => {
+      const bind = (id, event, fn) => { const el = document.getElementById(id); if(el) el.addEventListener(event, fn); };
+      bind('set-theme', 'change', (e) => { appSettings.theme = e.target.value; applyTheme(); saveSettings(); });
+      bind('set-gemini-key', 'change', (e) => { appSettings.geminiKey = e.target.value.trim(); saveSettings(); toast('API Key saved'); });
+      bind('set-github-token', 'change', (e) => { appSettings.githubToken = e.target.value.trim(); saveSettings(); });
+      bind('set-gist-id', 'change', (e) => { appSettings.gistId = e.target.value.trim(); saveSettings(); });
+      bind('btn-export-data', 'click', () => {
+        const blob = new Blob([JSON.stringify(state, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a'); a.href = url; a.download = 'atlas-backup.json'; a.click();
+        URL.revokeObjectURL(url); toast('Backup Exported');
+      });
+      bind('input-import-data', 'change', e => {
+        const file = e.target.files[0]; if (!file) return;
+        const reader = new FileReader();
+        reader.onload = ev => {
+          try {
+            const d = JSON.parse(ev.target.result);
+            if (d.accounts || d.transactions) { state = { ...state, ...d }; saveData(); renderAll(); toast('Data Imported Successfully'); }
+          } catch { toast('Import failed — invalid file'); }
+        };
+        reader.readAsText(file); e.target.value = '';
+      });
+      bind('btn-clear-data', 'click', () => {
+        if (!confirm('Clear all local data? This cannot be undone.')) return;
+        state.accounts = []; state.transactions = []; state.subs = []; state.netWorthHistory = {};
+        state.budgets = { 'Groceries': 400, 'Restaurants': 300 };
+        saveData(); renderAll(); closeAllModals(); toast('Local Data Cleared');
+      });
+      
+      const nav = document.getElementById('bottom-status-nav');
+      if(nav) nav.addEventListener('click', e => {
+        const btn = e.target.closest('[data-s]'); if (!btn) return;
+        switchTab(btn.dataset.s);
+      });
   });
 
   function handleContextAdd() {
@@ -847,32 +867,45 @@
   function switchTab(tabId) {
     state.activeTab = tabId;
     document.querySelectorAll('.view').forEach(el => el.classList.remove('active'));
-    document.getElementById(`view-${tabId}`).classList.add('active');
+    const view = document.getElementById(`view-${tabId}`);
+    if(view) view.classList.add('active');
+    
     document.querySelectorAll('.nav-btn').forEach(b => b.classList.toggle('active', b.dataset.s === tabId));
 
     const titles = { 'wealth': 'Wealth', 'budget': 'Budget', 'audit': 'Insights' };
-    document.getElementById('headerTitle').innerText = titles[tabId];
+    setSafeText('headerTitle', titles[tabId]);
     
     const headerMonthWrap = document.getElementById('headerMonthWrap');
-    if (tabId === 'budget' || tabId === 'audit') {
-      headerMonthWrap.style.display = 'block';
-      renderMonthSelector();
-    } else {
-      headerMonthWrap.style.display = 'none';
+    if(headerMonthWrap) {
+        if (tabId === 'budget' || tabId === 'audit') {
+          headerMonthWrap.style.display = 'block';
+          renderMonthSelector();
+        } else {
+          headerMonthWrap.style.display = 'none';
+        }
     }
     
-    if(tabId === 'wealth') renderWealth();
-    if(tabId === 'budget') renderBudget();
-    if(tabId === 'audit') renderAudit();
+    // Safely call renders
+    try { if(tabId === 'wealth') renderWealth(); } catch(e){ console.error(e); }
+    try { if(tabId === 'budget') renderBudget(); } catch(e){ console.error(e); }
+    try { if(tabId === 'audit') renderAudit(); } catch(e){ console.error(e); }
   }
 
   function renderAll() { switchTab(state.activeTab); }
 
   function renderMonthSelector() {
     const select = document.getElementById('monthSelect');
-    const months = new Set(state.transactions.map(t => t.month));
+    if (!select) return;
+    
+    // Clean out any bad data from the Set
+    const validMonths = (state.transactions || [])
+        .filter(t => t && t.month && typeof t.month === 'string' && t.month.includes('-'))
+        .map(t => t.month);
+        
+    const months = new Set(validMonths);
     const today = new Date();
     months.add(`${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`);
+    
     const sortedMonths = Array.from(months).sort().reverse();
     select.innerHTML = sortedMonths.map(m => `<option value="${m}" ${m === state.currentMonth ? 'selected' : ''}>${formatMonthDisplay(m)}</option>`).join('');
   }
@@ -880,6 +913,8 @@
   // --- CHART ENGINE ---
   function renderHistoryChart() {
     const svg = document.querySelector('.chart-svg');
+    if (!svg || !state.netWorthHistory) return;
+    
     const historyKeys = Object.keys(state.netWorthHistory).sort();
     if (historyKeys.length < 2) {
       if (historyKeys.length === 1) {
@@ -894,7 +929,7 @@
     const data = historyKeys.slice(-6).map(k => state.netWorthHistory[k]); 
     const max = Math.max(...data) * 1.05;
     const min = Math.min(0, Math.min(...data)); 
-    const range = max - min;
+    const range = (max - min) || 1; // Prevent division by zero
     
     const w = 300; 
     const h = 80;  
@@ -925,16 +960,22 @@
 
   // --- PACING ENGINE ---
   function calculatePacing(currentMonthFlexSpend) {
-    const allMonths = Array.from(new Set(state.transactions.map(t => t.month))).sort();
-    if (allMonths.length < 2) return null; // Need historical data
+    if (!state.transactions || !Array.isArray(state.transactions)) return null;
+    
+    const validMonths = state.transactions
+        .filter(t => t && t.month && t.month.includes('-'))
+        .map(t => t.month);
+        
+    const allMonths = Array.from(new Set(validMonths)).sort();
+    if (allMonths.length < 2) return null; 
 
     let totalHistoricalSpend = 0;
     let historicalMonthCount = 0;
 
     allMonths.forEach(m => {
-      if (m === state.currentMonth) return; // Skip current view
-      const monthTxs = state.transactions.filter(t => t.month === m && t.category !== 'Subscriptions');
-      totalHistoricalSpend += monthTxs.reduce((sum, t) => sum + parseFloat(t.amount), 0);
+      if (m === state.currentMonth) return; 
+      const monthTxs = state.transactions.filter(t => t && t.month === m && t.category !== 'Subscriptions');
+      totalHistoricalSpend += monthTxs.reduce((sum, t) => sum + (parseFloat(t.amount) || 0), 0);
       historicalMonthCount++;
     });
 
@@ -943,10 +984,11 @@
     const avgMonthlySpend = totalHistoricalSpend / historicalMonthCount;
     const today = new Date();
     
-    // Determine what day of the month we are looking at
-    let daysInCurrentView = 30; // Default past month
-    const [viewYear, viewMonth] = state.currentMonth.split('-');
+    let daysInCurrentView = 30; 
     
+    if (!state.currentMonth || typeof state.currentMonth !== 'string' || !state.currentMonth.includes('-')) return null;
+    
+    const [viewYear, viewMonth] = state.currentMonth.split('-');
     if (parseInt(viewYear) === today.getFullYear() && parseInt(viewMonth) === today.getMonth() + 1) {
       daysInCurrentView = Math.max(1, today.getDate());
     }
@@ -958,7 +1000,7 @@
   }
 
   function renderTags(noteStr) {
-    if (!noteStr) return '';
+    if (!noteStr || typeof noteStr !== 'string') return '';
     const words = noteStr.split(' ');
     let output = '';
     let hasTag = false;
@@ -975,38 +1017,36 @@
 
   // --- WEALTH (Tab 1) ---
   function renderWealth() {
-    const assetsList = document.getElementById('assetsList');
-    const liabList = document.getElementById('liabilitiesList');
-    
-    const assetsArr = state.accounts.filter(a => !a.isLiability);
-    const debtsArr = state.accounts.filter(a => a.isLiability);
+    const assetsArr = (state.accounts || []).filter(a => a && !a.isLiability);
+    const debtsArr = (state.accounts || []).filter(a => a && a.isLiability);
 
-    const totalAssets = assetsArr.reduce((sum, a) => sum + parseFloat(a.balance), 0);
-    const totalDebt = debtsArr.reduce((sum, a) => sum + parseFloat(a.balance), 0);
+    const totalAssets = assetsArr.reduce((sum, a) => sum + (parseFloat(a.balance) || 0), 0);
+    const totalDebt = debtsArr.reduce((sum, a) => sum + (parseFloat(a.balance) || 0), 0);
     const netWorth = totalAssets - totalDebt;
     
-    document.getElementById('dashNetWorth').innerText = formatMoney(netWorth);
-    document.getElementById('dashTotalAssets').innerText = formatMoney(totalAssets);
-    document.getElementById('dashTotalDebt').innerText = formatMoney(totalDebt);
+    setSafeText('dashNetWorth', formatMoney(netWorth));
+    setSafeText('dashTotalAssets', formatMoney(totalAssets));
+    setSafeText('dashTotalDebt', formatMoney(totalDebt));
 
     renderHistoryChart();
 
-    const totalTargets = Object.values(state.budgets).reduce((sum, val) => sum + val, 0);
-    const totalSubs = state.subs.reduce((sum, s) => sum + s.cost, 0);
+    const totalTargets = Object.values(state.budgets || {}).reduce((sum, val) => sum + (val||0), 0);
+    const totalSubs = (state.subs || []).reduce((sum, s) => sum + (s.cost||0), 0);
     const monthlyBurn = totalTargets + totalSubs;
     
     let runwayMonths = 0;
     if (monthlyBurn > 0) runwayMonths = (totalAssets / monthlyBurn).toFixed(1);
-    document.getElementById('dashRunway').innerText = `${runwayMonths} Mos`;
+    setSafeText('dashRunway', `${runwayMonths} Mos`);
 
     let ratio = 0;
     if (totalDebt > 0) ratio = (totalAssets / totalDebt).toFixed(1);
     else if (totalAssets > 0) ratio = "∞";
-    document.getElementById('dashRatio').innerText = `${ratio}x`;
+    setSafeText('dashRatio', `${ratio}x`);
 
-    if (assetsArr.length === 0) assetsList.innerHTML = `<div style=\"padding:30px;text-align:center;color:var(--text-3);font-weight:600;\">No assets added.</div>`;
+    let assetHtml = '';
+    if (assetsArr.length === 0) assetHtml = `<div style=\"padding:30px;text-align:center;color:var(--text-3);font-weight:600;\">No assets added.</div>`;
     else {
-      assetsList.innerHTML = assetsArr.map(a => `
+      assetHtml = assetsArr.map(a => `
         <button class=\"lrow\" onclick=\"openAccountModal('${a.id}')\">
           <div class=\"lrow-left\">
             <div class=\"lrow-title\">${a.name}</div>
@@ -1017,10 +1057,12 @@
           </div>
         </button>`).join('');
     }
+    setSafeHTML('assetsList', assetHtml);
 
-    if (debtsArr.length === 0) liabList.innerHTML = `<div style=\"padding:30px;text-align:center;color:var(--text-3);font-weight:600;\">No liabilities added.</div>`;
+    let liabHtml = '';
+    if (debtsArr.length === 0) liabHtml = `<div style=\"padding:30px;text-align:center;color:var(--text-3);font-weight:600;\">No liabilities added.</div>`;
     else {
-      liabList.innerHTML = debtsArr.map(a => `
+      liabHtml = debtsArr.map(a => `
         <button class=\"lrow\" onclick=\"openAccountModal('${a.id}')\">
           <div class=\"lrow-left\">
             <div class=\"lrow-title\">${a.name}</div>
@@ -1031,61 +1073,66 @@
           </div>
         </button>`).join('');
     }
+    setSafeHTML('liabilitiesList', liabHtml);
   }
 
   // --- BUDGET (Tab 2) ---
   function renderBudget() {
-    const txs = state.transactions.filter(t => t.month === state.currentMonth);
+    const txs = (state.transactions || []).filter(t => t && t.month === state.currentMonth);
     
-    // Core Logic: Safe to Spend = Income - Savings Target - Fixed Subs
-    const totalSubs = state.subs.reduce((sum, s) => sum + s.cost, 0);
-    document.getElementById('dashFixedBills').innerText = formatMoney(totalSubs);
+    const totalSubs = (state.subs || []).reduce((sum, s) => sum + (s.cost||0), 0);
+    setSafeText('dashFixedBills', formatMoney(totalSubs));
 
-    const availableToSpend = Math.max(0, state.monthlyIncome - state.monthlySavingsTarget - totalSubs);
+    const availableToSpend = Math.max(0, (state.monthlyIncome||0) - (state.monthlySavingsTarget||0) - totalSubs);
     
-    // Flexible spending excludes Subscriptions (they are already deducted)
     const flexTxs = txs.filter(t => t.category !== 'Subscriptions');
-    const flexSpent = flexTxs.reduce((sum, t) => sum + parseFloat(t.amount), 0);
+    const flexSpent = flexTxs.reduce((sum, t) => sum + (parseFloat(t.amount)||0), 0);
     
     const gap = availableToSpend - flexSpent;
     const pct = availableToSpend > 0 ? Math.min((flexSpent / availableToSpend) * 100, 100) : 0;
 
-    document.getElementById('gapAmount').innerText = formatMoney(gap);
-    document.getElementById('gapPercentage').innerText = `${pct.toFixed(0)}% Used`;
-    document.getElementById('gapProgressBar').style.width = `${pct}%`;
-    document.getElementById('gapMonthLabel').innerText = formatMonthDisplay(state.currentMonth);
+    setSafeText('gapAmount', formatMoney(gap));
+    setSafeText('gapPercentage', `${pct.toFixed(0)}% Used`);
+    setSafeText('gapMonthLabel', formatMonthDisplay(state.currentMonth));
     
-    // Render Pacing Badge
+    const progBar = document.getElementById('gapProgressBar');
+    if(progBar) progBar.style.width = `${pct}%`;
+    
     const pacing = calculatePacing(flexSpent);
     const badge = document.getElementById('pacingBadge');
-    if (!pacing) {
-      badge.className = 'pacing-badge neutral';
-      badge.innerHTML = 'Gathering Pace Data...';
-    } else {
-      if (pacing.diff >= 0) {
-        badge.className = 'pacing-badge good';
-        badge.innerHTML = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="m21 16-9-9-9 9"/></svg> ${formatMoney(Math.abs(pacing.diff))} under pace`;
-      } else {
-        badge.className = 'pacing-badge bad';
-        badge.innerHTML = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="m3 8 9 9 9-9"/></svg> ${formatMoney(Math.abs(pacing.diff))} over pace`;
-      }
+    if (badge) {
+        if (!pacing) {
+          badge.className = 'pacing-badge neutral';
+          badge.innerHTML = 'Gathering Pace Data...';
+        } else {
+          if (pacing.diff >= 0) {
+            badge.className = 'pacing-badge good';
+            badge.innerHTML = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="m21 16-9-9-9 9"/></svg> ${formatMoney(Math.abs(pacing.diff))} under pace`;
+          } else {
+            badge.className = 'pacing-badge bad';
+            badge.innerHTML = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="m3 8 9 9 9-9"/></svg> ${formatMoney(Math.abs(pacing.diff))} over pace`;
+          }
+        }
     }
 
     const widget = document.getElementById('gapWidget');
-    if (gap < 0) {
-      widget.classList.add('danger');
-      document.getElementById('gapPercentage').style.color = 'var(--pass)';
-      document.getElementById('gapProgressBar').style.background = 'var(--pass)';
-    } else {
-      widget.classList.remove('danger');
-      document.getElementById('gapPercentage').style.color = 'var(--text-1)';
-      document.getElementById('gapProgressBar').style.background = 'var(--text-1)';
+    const pctEl = document.getElementById('gapPercentage');
+    if (widget) {
+        if (gap < 0) {
+          widget.classList.add('danger');
+          if(pctEl) pctEl.style.color = 'var(--pass)';
+          if(progBar) progBar.style.background = 'var(--pass)';
+        } else {
+          widget.classList.remove('danger');
+          if(pctEl) pctEl.style.color = 'var(--text-1)';
+          if(progBar) progBar.style.background = 'var(--text-1)';
+        }
     }
 
-    const list = document.getElementById('budgetList');
-    list.innerHTML = Object.keys(state.budgets).map(category => {
-      const target = state.budgets[category];
-      const actual = flexTxs.filter(t => t.category === category).reduce((sum, t) => sum + parseFloat(t.amount), 0);
+    const budgets = state.budgets || {};
+    let budgetHtml = Object.keys(budgets).map(category => {
+      const target = budgets[category] || 0;
+      const actual = flexTxs.filter(t => t.category === category).reduce((sum, t) => sum + (parseFloat(t.amount)||0), 0);
       const catPct = target > 0 ? (actual / target) * 100 : 0;
       const isOver = actual > target && target > 0;
       return `
@@ -1103,11 +1150,13 @@
           ${target > 0 ? `<div class=\"prog-track\" style=\"margin-top: 6px; height: 6px;\"><div class=\"prog-fill\" style=\"background: ${isOver ? 'var(--pass)' : 'var(--accent)'}; width: ${Math.min(catPct, 100)}%\"></div></div>` : ''}
         </div>`;
     }).join('');
+    setSafeHTML('budgetList', budgetHtml);
 
-    const txList = document.getElementById('transactionsList');
-    if (txs.length === 0) txList.innerHTML = `<div style=\"padding:40px 20px;text-align:center;color:var(--text-3);font-weight:600;\">No transactions for this month.</div>`;
-    else {
-      txList.innerHTML = txs.slice(0, 30).map(tx => {
+    let txHtml = '';
+    if (txs.length === 0) {
+        txHtml = `<div style=\"padding:40px 20px;text-align:center;color:var(--text-3);font-weight:600;\">No transactions for this month.</div>`;
+    } else {
+      txHtml = txs.slice(0, 50).map(tx => {
         const noteHtml = tx.note ? `<span style="margin: 0 4px; color: var(--border-md);">|</span> ${renderTags(tx.note)}` : '';
         return `
         <button class=\"lrow\" onclick=\"openTxModal('${tx.id}')\">
@@ -1119,25 +1168,31 @@
         </button>`;
       }).join('');
     }
+    setSafeHTML('transactionsList', txHtml);
   }
 
-  function addBudgetCategory() {
+  // Define explicitly on window for inline handlers
+  window.addBudgetCategory = function() {
     const cat = prompt("Enter new category name:");
     if (cat && !state.budgets[cat]) { state.budgets[cat] = 0; saveData(); renderBudget(); toast('Category Added'); }
   }
-  function updateBudgetTarget(category, value) { state.budgets[category] = Number(value); saveData(); renderBudget(); }
+  window.updateBudgetTarget = function(category, value) { 
+      if(!state.budgets) state.budgets = {};
+      state.budgets[category] = Number(value); saveData(); renderBudget(); 
+  }
 
   // --- AUDIT & INSIGHTS (Tab 3) ---
-  function runPlanner() {
+  window.runPlanner = function() {
     const costInput = document.getElementById('plannerCost').value;
     const resBox = document.getElementById('plannerResult');
+    if (!resBox) return;
     if (!costInput || isNaN(costInput) || costInput <= 0) { resBox.style.display = 'none'; return; }
     
     const cost = parseFloat(costInput);
     
-    const assets = state.accounts.filter(a => !a.isLiability).reduce((sum, a) => sum + parseFloat(a.balance), 0);
-    const totalTargets = Object.values(state.budgets).reduce((sum, val) => sum + val, 0);
-    const totalSubs = state.subs.reduce((sum, s) => sum + s.cost, 0);
+    const assets = (state.accounts||[]).filter(a => a && !a.isLiability).reduce((sum, a) => sum + (parseFloat(a.balance)||0), 0);
+    const totalTargets = Object.values(state.budgets||{}).reduce((sum, val) => sum + (val||0), 0);
+    const totalSubs = (state.subs||[]).reduce((sum, s) => sum + (s.cost||0), 0);
     const monthlyBurn = totalTargets + totalSubs;
     
     let newRunway = 0;
@@ -1148,29 +1203,30 @@
       recovery = (cost / state.monthlySavingsTarget).toFixed(1) + " Mos";
     }
 
-    document.getElementById('planRunway').innerText = `${newRunway} Mos`;
-    document.getElementById('planRunway').style.color = newRunway < 3 ? 'var(--pass)' : 'var(--text-1)';
-    document.getElementById('planRecovery').innerText = recovery;
+    setSafeText('planRunway', `${newRunway} Mos`);
+    const rwEl = document.getElementById('planRunway');
+    if(rwEl) rwEl.style.color = newRunway < 3 ? 'var(--pass)' : 'var(--text-1)';
+    setSafeText('planRecovery', recovery);
     resBox.style.display = 'block';
   }
 
   function renderAudit() {
-    const txs = state.transactions.filter(t => t.month === state.currentMonth);
+    const txs = (state.transactions||[]).filter(t => t && t.month === state.currentMonth);
     const colorPalette = getColors();
     
     let catTotals = {};
     let totalMonthSpend = 0;
     txs.forEach(t => {
-      catTotals[t.category] = (catTotals[t.category] || 0) + parseFloat(t.amount);
-      totalMonthSpend += parseFloat(t.amount);
+      catTotals[t.category] = (catTotals[t.category] || 0) + (parseFloat(t.amount)||0);
+      totalMonthSpend += (parseFloat(t.amount)||0);
     });
 
-    const breakdownList = document.getElementById('categoryBreakdownList');
+    let brkHtml = '';
     if (totalMonthSpend === 0) {
-      breakdownList.innerHTML = `<div style="text-align:center; color:var(--text-3); font-weight:600; padding: 10px 0;">No spending data for this month.</div>`;
+      brkHtml = `<div style="text-align:center; color:var(--text-3); font-weight:600; padding: 10px 0;">No spending data for this month.</div>`;
     } else {
       const sortedCats = Object.entries(catTotals).sort((a,b) => b[1] - a[1]);
-      breakdownList.innerHTML = sortedCats.map((item, index) => {
+      brkHtml = sortedCats.map((item, index) => {
         const [cat, amt] = item;
         const pct = (amt / totalMonthSpend) * 100;
         const color = colorPalette[index % colorPalette.length];
@@ -1187,12 +1243,13 @@
         `;
       }).join('');
     }
+    setSafeHTML('categoryBreakdownList', brkHtml);
 
-    const subList = document.getElementById('subsList');
-    if (state.subs.length === 0) subList.innerHTML = `<div style=\"padding:30px;text-align:center;color:var(--text-3);font-weight:600;\">No subscriptions tracked.</div>`;
+    let subHtml = '';
+    if (!state.subs || state.subs.length === 0) subHtml = `<div style=\"padding:30px;text-align:center;color:var(--text-3);font-weight:600;\">No subscriptions tracked.</div>`;
     else {
-      subList.innerHTML = state.subs.map(s => {
-        const annual = s.cost * 12;
+      subHtml = state.subs.map(s => {
+        const annual = (s.cost||0) * 12;
         return `
         <button class=\"lrow\" onclick=\"openSubModal('${s.id}')\">
           <div class=\"lrow-left\">
@@ -1203,16 +1260,19 @@
         </button>`;
       }).join('');
     }
+    setSafeHTML('subsList', subHtml);
   }
 
   // --- GITHUB CLOUD SYNC ---
-  async function githubPush() {
-    const token = document.getElementById('set-github-token').value.trim();
+  window.githubPush = async function() {
+    const tokenEl = document.getElementById('set-github-token');
+    const token = tokenEl ? tokenEl.value.trim() : '';
     if (!token) { toast("Requires GitHub PAT"); return; }
     
-    const gistId = document.getElementById('set-gist-id').value.trim();
+    const gistEl = document.getElementById('set-gist-id');
+    const gistId = gistEl ? gistEl.value.trim() : '';
     const payload = {
-      description: "KW Finance Backup",
+      description: "Atlas Financial OS Backup",
       public: false,
       files: { "atlas_cloud_sync.json": { content: JSON.stringify(state, null, 2) } }
     };
@@ -1232,7 +1292,7 @@
       
       if (!gistId) {
         appSettings.gistId = data.id;
-        document.getElementById('set-gist-id').value = data.id;
+        if(gistEl) gistEl.value = data.id;
         saveSettings();
       }
       toast('Cloud Sync: Upload Success');
@@ -1241,9 +1301,11 @@
     }
   }
 
-  async function githubPull() {
-    const token = document.getElementById('set-github-token').value.trim();
-    const gistId = document.getElementById('set-gist-id').value.trim();
+  window.githubPull = async function() {
+    const tokenEl = document.getElementById('set-github-token');
+    const token = tokenEl ? tokenEl.value.trim() : '';
+    const gistEl = document.getElementById('set-gist-id');
+    const gistId = gistEl ? gistEl.value.trim() : '';
     if (!token || !gistId) { toast("Requires Token and Gist ID"); return; }
 
     try {
@@ -1269,58 +1331,69 @@
   let activeSheet = null;
   
   function showModal(id) {
-    if (activeSheet) document.getElementById(activeSheet).classList.remove('on');
-    activeSheet = id; overlay.classList.add('on'); document.getElementById(id).classList.add('on');
+    if (activeSheet) {
+        const oldEl = document.getElementById(activeSheet);
+        if(oldEl) oldEl.classList.remove('on');
+    }
+    activeSheet = id; 
+    if(overlay) overlay.classList.add('on'); 
+    const newEl = document.getElementById(id);
+    if(newEl) newEl.classList.add('on');
   }
 
   function closeAllModals() {
-    overlay.classList.remove('on');
-    ['accountModal', 'txModal', 'aiModal', 'settingsModal', 'subModal'].forEach(id => document.getElementById(id).classList.remove('on'));
+    if(overlay) overlay.classList.remove('on');
+    ['accountModal', 'txModal', 'aiModal', 'settingsModal', 'subModal'].forEach(id => {
+        const el = document.getElementById(id);
+        if(el) el.classList.remove('on');
+    });
     activeSheet = null;
   }
-  overlay.addEventListener('click', closeAllModals);
+  if(overlay) overlay.addEventListener('click', closeAllModals);
 
+  // Swipe physics
   ['accountModal', 'txModal', 'aiModal', 'settingsModal', 'subModal'].forEach(id => {
     let startY = 0, isDragging = false;
     const sheet = document.getElementById(id);
+    if(!sheet) return;
     const scroll = sheet.querySelector('.sheet-scroll');
     sheet.addEventListener('touchstart', e => { if (scroll && scroll.scrollTop > 0) return; startY = e.touches[0].clientY; isDragging = true; }, { passive: true });
     sheet.addEventListener('touchmove', e => { if (!isDragging) return; const dy = e.touches[0].clientY - startY; if (dy > 0) sheet.style.transform = `translateY(${dy}px) translateZ(0)`; }, { passive: true });
     sheet.addEventListener('touchend', e => { if (!isDragging) return; isDragging = false; const dy = e.changedTouches[0].clientY - startY; if (dy > 120) { sheet.style.transform = ''; closeAllModals(); } else sheet.style.transform = ''; });
   });
 
-  function openSettingsModal() { 
-    document.getElementById('set-gemini-key').value = appSettings.geminiKey || ''; 
-    document.getElementById('set-github-token').value = appSettings.githubToken || ''; 
-    document.getElementById('set-gist-id').value = appSettings.gistId || ''; 
+  window.openSettingsModal = function() { 
+    const kEl = document.getElementById('set-gemini-key'); if(kEl) kEl.value = appSettings.geminiKey || ''; 
+    const tEl = document.getElementById('set-github-token'); if(tEl) tEl.value = appSettings.githubToken || ''; 
+    const gEl = document.getElementById('set-gist-id'); if(gEl) gEl.value = appSettings.gistId || ''; 
     showModal('settingsModal'); 
   }
 
   // Account Modal
-  function openAccountModal(typeOrId) {
-    document.getElementById('accountForm').reset();
+  window.openAccountModal = function(typeOrId) {
+    const form = document.getElementById('accountForm'); if(form) form.reset();
     const delBtn = document.getElementById('deleteAccountBtn');
     
     if (typeOrId === 'asset' || typeOrId === 'liability') {
-      document.getElementById('accountModalTitle').innerText = 'Add Account';
+      setSafeText('accountModalTitle', 'Add Account');
       document.getElementById('accountId').value = '';
       document.getElementById('accountIsLiability').value = typeOrId === 'liability' ? 'true' : 'false';
-      delBtn.style.display = 'none';
+      if(delBtn) delBtn.style.display = 'none';
     } else {
-      const a = state.accounts.find(x => x.id === typeOrId);
+      const a = (state.accounts||[]).find(x => x && x.id === typeOrId);
       if(!a) return;
-      document.getElementById('accountModalTitle').innerText = 'Edit Account';
+      setSafeText('accountModalTitle', 'Edit Account');
       document.getElementById('accountId').value = a.id;
       document.getElementById('accountIsLiability').value = a.isLiability ? 'true' : 'false';
       document.getElementById('accountName').value = a.name;
       document.getElementById('accountBalance').value = a.balance;
       document.getElementById('accountRate').value = a.rate || '';
-      delBtn.style.display = 'block';
+      if(delBtn) delBtn.style.display = 'block';
     }
     showModal('accountModal');
   }
 
-  function saveAccount(e) {
+  window.saveAccount = function(e) {
     e.preventDefault();
     const id = document.getElementById('accountId').value || generateId();
     const newAcc = {
@@ -1329,80 +1402,86 @@
       rate: parseFloat(document.getElementById('accountRate').value) || 0,
       isLiability: document.getElementById('accountIsLiability').value === 'true'
     };
-    const idx = state.accounts.findIndex(x => x.id === id);
+    if(!state.accounts) state.accounts = [];
+    const idx = state.accounts.findIndex(x => x && x.id === id);
     if (idx > -1) state.accounts[idx] = newAcc; else state.accounts.push(newAcc);
     saveData(); renderWealth(); closeAllModals(); toast('Account saved');
   }
 
-  function deleteAccount() {
+  window.deleteAccount = function() {
     if(confirm('Delete this account?')) {
-      state.accounts = state.accounts.filter(a => a.id !== document.getElementById('accountId').value);
+      if(state.accounts) state.accounts = state.accounts.filter(a => a && a.id !== document.getElementById('accountId').value);
       saveData(); renderWealth(); closeAllModals(); toast('Account deleted');
     }
   }
 
   // Subscription Modal
-  function openSubModal(id = null) {
-    document.getElementById('subForm').reset();
+  window.openSubModal = function(id = null) {
+    const form = document.getElementById('subForm'); if(form) form.reset();
     const delBtn = document.getElementById('deleteSubBtn');
     if(id) {
-      const s = state.subs.find(x => x.id === id);
-      document.getElementById('subModalTitle').innerText = 'Edit Subscription';
+      const s = (state.subs||[]).find(x => x && x.id === id);
+      if(!s) return;
+      setSafeText('subModalTitle', 'Edit Subscription');
       document.getElementById('subId').value = s.id;
       document.getElementById('subName').value = s.name;
       document.getElementById('subCost').value = s.cost;
-      delBtn.style.display = 'block';
+      if(delBtn) delBtn.style.display = 'block';
     } else {
-      document.getElementById('subModalTitle').innerText = 'Add Subscription';
+      setSafeText('subModalTitle', 'Add Subscription');
       document.getElementById('subId').value = '';
-      delBtn.style.display = 'none';
+      if(delBtn) delBtn.style.display = 'none';
     }
     showModal('subModal');
   }
 
-  function saveSub(e) {
+  window.saveSub = function(e) {
     e.preventDefault();
     const id = document.getElementById('subId').value || generateId();
     const newSub = { id, name: document.getElementById('subName').value, cost: parseFloat(document.getElementById('subCost').value) || 0 };
-    const idx = state.subs.findIndex(x => x.id === id);
+    if(!state.subs) state.subs = [];
+    const idx = state.subs.findIndex(x => x && x.id === id);
     if (idx > -1) state.subs[idx] = newSub; else state.subs.push(newSub);
     saveData(); renderBudget(); renderAudit(); closeAllModals(); toast('Subscription saved');
   }
-  function deleteSub() {
+  
+  window.deleteSub = function() {
     if(confirm('Stop tracking this subscription?')) {
-      state.subs = state.subs.filter(a => a.id !== document.getElementById('subId').value);
+      if(state.subs) state.subs = state.subs.filter(a => a && a.id !== document.getElementById('subId').value);
       saveData(); renderBudget(); renderAudit(); closeAllModals(); toast('Tracking removed');
     }
   }
 
   // Transaction Modal
-  function openTxModal(id = null) {
-    document.getElementById('txForm').reset();
+  window.openTxModal = function(id = null) {
+    const form = document.getElementById('txForm'); if(form) form.reset();
     const select = document.getElementById('txCategory');
-    const cats = Array.from(new Set(['Subscriptions', 'Other', 'Medical', ...Object.keys(state.budgets)]));
+    const cats = Array.from(new Set(['Subscriptions', 'Other', 'Medical', ...Object.keys(state.budgets||{})]));
     
     if (id) {
-      const tx = state.transactions.find(x => x.id === id);
-      document.getElementById('txModalTitle').innerText = 'Edit Transaction';
+      const tx = (state.transactions||[]).find(x => x && x.id === id);
+      if(!tx) return;
+      setSafeText('txModalTitle', 'Edit Transaction');
       document.getElementById('txId').value = tx.id;
       document.getElementById('txMerchant').value = tx.merchant;
       document.getElementById('txAmount').value = tx.amount;
       document.getElementById('txNote').value = tx.note || '';
-      select.innerHTML = cats.map(c => `<option value="${c}" ${c === tx.category ? 'selected' : ''}>${c}</option>`).join('');
-      document.getElementById('deleteTxBtn').style.display = 'block';
+      if(select) select.innerHTML = cats.map(c => `<option value="${c}" ${c === tx.category ? 'selected' : ''}>${c}</option>`).join('');
+      const dBtn = document.getElementById('deleteTxBtn'); if(dBtn) dBtn.style.display = 'block';
     } else {
-      document.getElementById('txModalTitle').innerText = 'Add Transaction';
+      setSafeText('txModalTitle', 'Add Transaction');
       document.getElementById('txId').value = '';
-      select.innerHTML = cats.map(c => `<option value="${c}">${c}</option>`).join('');
-      document.getElementById('deleteTxBtn').style.display = 'none';
+      if(select) select.innerHTML = cats.map(c => `<option value="${c}">${c}</option>`).join('');
+      const dBtn = document.getElementById('deleteTxBtn'); if(dBtn) dBtn.style.display = 'none';
     }
     showModal('txModal');
   }
 
-  function saveTx(e) {
+  window.saveTx = function(e) {
     e.preventDefault();
     const id = document.getElementById('txId').value || generateId();
-    const dateStr = new Date().toISOString().split('T')[0];
+    const d = new Date();
+    const dateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
     
     const newTx = {
       id, date: dateStr, month: getMonthKey(dateStr),
@@ -1411,115 +1490,190 @@
       note: document.getElementById('txNote').value.trim(),
       amount: parseFloat(document.getElementById('txAmount').value) || 0
     };
-    const idx = state.transactions.findIndex(x => x.id === id);
-    if (idx > -1) { state.transactions[idx] = { ...state.transactions[idx], ...newTx, date: state.transactions[idx].date, month: state.transactions[idx].month }; }
+    
+    if(!state.transactions) state.transactions = [];
+    const idx = state.transactions.findIndex(x => x && x.id === id);
+    if (idx > -1) { 
+      state.transactions[idx] = { ...state.transactions[idx], ...newTx, date: state.transactions[idx].date, month: state.transactions[idx].month }; 
+    }
     else { state.transactions.unshift(newTx); }
     
-    state.transactions.sort((a,b) => new Date(b.date) - new Date(a.date));
-    saveData(); renderBudget(); renderAudit(); closeAllModals(); toast('Transaction saved');
+    state.transactions.sort((a,b) => {
+        const dA = a && a.date ? new Date(a.date).getTime() : 0;
+        const dB = b && b.date ? new Date(b.date).getTime() : 0;
+        return (isNaN(dB) ? 0 : dB) - (isNaN(dA) ? 0 : dA);
+    });
+    saveData(); renderMonthSelector(); renderBudget(); renderAudit(); closeAllModals(); toast('Transaction saved');
   }
 
-  function deleteTx() {
+  window.deleteTx = function() {
      if(confirm('Delete transaction entirely?')) {
-      state.transactions = state.transactions.filter(t => t.id !== document.getElementById('txId').value);
-      saveData(); renderBudget(); renderAudit(); closeAllModals(); toast('Transaction deleted');
+      if(state.transactions) state.transactions = state.transactions.filter(t => t && t.id !== document.getElementById('txId').value);
+      saveData(); renderMonthSelector(); renderBudget(); renderAudit(); closeAllModals(); toast('Transaction deleted');
     }
   }
 
   // --- SMART CSV PARSING ---
+  function safeParseDate(dateStr) {
+    if (!dateStr || typeof dateStr !== 'string') return null;
+    
+    // Remove any quotes from date string directly before parsing
+    const cleanDate = dateStr.replace(/"/g, '').trim();
+    
+    if (cleanDate.includes('/')) {
+      const parts = cleanDate.split('/');
+      if (parts.length === 3) {
+        // Handle MM/DD/YY vs MM/DD/YYYY
+        const yStr = parts[2];
+        let y = yStr;
+        if (yStr.length === 2) {
+            y = parseInt(yStr) > 50 ? `19${yStr}` : `20${yStr}`;
+        }
+        const m = parts[0].padStart(2, '0');
+        const d = parts[1].padStart(2, '0');
+        return `${y}-${m}-${d}`;
+      }
+    }
+    if (cleanDate.includes('-')) {
+      return cleanDate.substring(0, 10);
+    }
+    
+    // Final fallback
+    const d = new Date(cleanDate);
+    if(!isNaN(d.getTime())) {
+      return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+    }
+    return null;
+  }
+
   function parseCSVLine(text) {
+    if(!text) return [];
     let ret = [], inQuote = false, value = '';
     for (let i = 0; i < text.length; i++) {
       let char = text[i];
-      if (char === '"') inQuote = !inQuote;
+      if (char === '"') { inQuote = !inQuote; } // We skip adding quotes to the value
       else if (char === ',' && !inQuote) { ret.push(value.trim()); value = ''; }
-      else value += char;
+      else { value += char; }
     }
-    ret.push(value.trim()); return ret;
+    ret.push(value.trim()); 
+    return ret;
   }
 
-  function handleCSVUpload(e) {
+  window.handleCSVUpload = function(e) {
     const file = e.target.files[0];
     if (!file) return;
     const reader = new FileReader();
     reader.onload = (event) => {
-      const text = event.target.result;
-      const lines = text.split(/\r?\n/).filter(l => l.trim().length > 0);
-      if (lines.length < 2) { toast('CSV format not recognized'); return; }
+      try {
+          const text = event.target.result;
+          if(!text) throw new Error("Empty file");
+          const lines = text.split(/\r?\n/).filter(l => l && l.trim().length > 0);
+          if (lines.length < 2) { toast('CSV format not recognized'); return; }
 
-      const headers = parseCSVLine(lines[0]).map(h => h.toLowerCase().trim());
-      const dateIdx = headers.findIndex(h => h.includes('date'));
-      const descIdx = headers.findIndex(h => h.includes('description') || h.includes('merchant'));
-      const catIdx = headers.findIndex(h => h.includes('category'));
-      const typeIdx = headers.findIndex(h => h.includes('type'));
-      const amtIdx = headers.findIndex(h => h.includes('amount'));
+          const headers = parseCSVLine(lines[0]).map(h => h ? h.toLowerCase().trim() : '');
+          const dateIdx = headers.findIndex(h => h.includes('date'));
+          const descIdx = headers.findIndex(h => h.includes('description') || h.includes('merchant'));
+          const catIdx = headers.findIndex(h => h.includes('category'));
+          const typeIdx = headers.findIndex(h => h.includes('type'));
+          const amtIdx = headers.findIndex(h => h.includes('amount'));
 
-      if (dateIdx === -1 || amtIdx === -1) {
-        toast('Missing standard headers (Date, Amount).'); return;
+          if (dateIdx === -1 || amtIdx === -1) {
+            toast('Missing standard headers (Date, Amount).'); return;
+          }
+
+          let newTxs = [];
+          let duplicates = 0;
+          let monthCounts = {};
+          
+          if(!state.subs) state.subs = [];
+          const subNames = state.subs.map(s => s && s.name ? s.name.toLowerCase() : '');
+
+          if(!state.budgets) state.budgets = {};
+
+          for (let i = 1; i < lines.length; i++) {
+            const row = parseCSVLine(lines[i]);
+            if (row.length <= Math.max(dateIdx, amtIdx)) continue;
+
+            const dateRaw = row[dateIdx];
+            const safeDate = safeParseDate(dateRaw);
+            if (!safeDate) continue; // Skip unparsable dates
+            
+            const monthKey = safeDate.substring(0, 7);
+
+            const merchant = descIdx >= 0 && row[descIdx] ? row[descIdx] : 'Unknown';
+            const type = typeIdx >= 0 && row[typeIdx] ? row[typeIdx].toLowerCase() : '';
+            
+            let amountStr = row[amtIdx] ? row[amtIdx].replace(/[^0-9.-]+/g, "") : "0";
+            let amount = parseFloat(amountStr);
+
+            // Skip payments/income/zero
+            if (type.includes('payment') || amount === 0 || isNaN(amount)) continue;
+            amount = Math.abs(amount);
+
+            let categoryStr = catIdx >= 0 && row[catIdx] ? row[catIdx].trim() : 'Other';
+            if(categoryStr.length > 25) categoryStr = categoryStr.substring(0, 25);
+            if(!categoryStr) categoryStr = 'Other';
+
+            if (subNames.some(sn => sn && merchant.toLowerCase().includes(sn))) {
+              categoryStr = 'Subscriptions';
+            } else if (categoryStr !== 'Other' && categoryStr !== 'Subscriptions') {
+              if (state.budgets[categoryStr] === undefined) {
+                 state.budgets[categoryStr] = 0;
+              }
+            }
+
+            const uniqueId = `${safeDate}-${merchant.replace(/\s/g, '')}-${amount}`;
+            
+            if(!state.transactions) state.transactions = [];
+            if (state.transactions.some(t => t && t.id === uniqueId) || newTxs.some(t => t && t.id === uniqueId)) { 
+                duplicates++; 
+                continue; 
+            }
+
+            newTxs.push({ id: uniqueId, date: safeDate, month: monthKey, merchant, category: categoryStr, note: '', amount });
+            monthCounts[monthKey] = (monthCounts[monthKey] || 0) + 1;
+          }
+
+          if (newTxs.length > 0) {
+            state.transactions = [...(state.transactions||[]), ...newTxs].sort((a, b) => {
+                const dA = a && a.date ? new Date(a.date).getTime() : 0;
+                const dB = b && b.date ? new Date(b.date).getTime() : 0;
+                return (isNaN(dB) ? 0 : dB) - (isNaN(dA) ? 0 : dA);
+            });
+            
+            // Jump to month with most imports
+            const topMonth = Object.keys(monthCounts).reduce((a, b) => monthCounts[a] > monthCounts[b] ? a : b);
+            state.currentMonth = topMonth;
+            
+            saveData(); 
+            renderMonthSelector(); 
+            renderBudget(); 
+            renderAudit();
+            toast(`Imported ${newTxs.length} items. Jumped to ${formatMonthDisplay(topMonth)}.`);
+          } else {
+            toast(`0 items added. Found ${duplicates} duplicates.`);
+          }
+      } catch (err) {
+          console.error(err);
+          toast('Error parsing CSV file.');
       }
-
-      let newTxs = [], duplicates = 0;
-      const subNames = state.subs.map(s => s.name.toLowerCase());
-
-      for (let i = 1; i < lines.length; i++) {
-        const row = parseCSVLine(lines[i]);
-        if (row.length <= Math.max(dateIdx, descIdx, amtIdx)) continue;
-
-        const dateRaw = row[dateIdx];
-        const merchant = descIdx >= 0 && row[descIdx] ? row[descIdx] : 'Unknown';
-        let category = catIdx >= 0 && row[catIdx] ? row[catIdx] : 'Other';
-        const type = typeIdx >= 0 ? row[typeIdx].toLowerCase() : '';
-        
-        let amountStr = row[amtIdx] ? row[amtIdx].replace(/[^0-9.-]+/g, "") : "0";
-        let amount = parseFloat(amountStr);
-
-        if (type.includes('payment') || amount === 0 || isNaN(amount)) continue;
-        amount = Math.abs(amount);
-
-        let parsedDate = new Date(dateRaw);
-        if (isNaN(parsedDate)) continue;
-        
-        const formattedDate = parsedDate.toISOString().split('T')[0];
-        const monthKey = formattedDate.substring(0, 7);
-
-        // Auto-mapper
-        const availableCats = Object.keys(state.budgets);
-        
-        // Auto-tag subscriptions so they don't double dip the "Left to spend" pool
-        if (subNames.some(sn => merchant.toLowerCase().includes(sn))) {
-          category = 'Subscriptions';
-        } else if (!availableCats.includes(category)) {
-          const match = availableCats.find(c => c.toLowerCase() === category.toLowerCase() || category.toLowerCase().includes(c.toLowerCase()));
-          category = match || 'Other';
-        }
-
-        const uniqueId = `${formattedDate}-${merchant.replace(/\s/g, '')}-${amount}`;
-        if (state.transactions.some(t => t.id === uniqueId) || newTxs.some(t => t.id === uniqueId)) { duplicates++; continue; }
-
-        newTxs.push({ id: uniqueId, date: formattedDate, month: monthKey, merchant, category, note: '', amount });
-      }
-
-      if (newTxs.length > 0) {
-        state.transactions = [...state.transactions, ...newTxs].sort((a, b) => new Date(b.date) - new Date(a.date));
-        state.currentMonth = state.transactions[0].month;
-        saveData(); renderMonthSelector(); renderBudget(); renderAudit();
-      }
-      toast(`Imported ${newTxs.length} expenses. Skipped ${duplicates} duplicates.`);
     };
     reader.readAsText(file); e.target.value = '';
   }
 
   // --- AI INSIGHTS ---
-  async function askAI() {
+  window.askAI = async function() {
     const apiKey = appSettings.geminiKey;
     if (!apiKey) { toast('Please set Gemini API Key in Settings'); openSettingsModal(); return; }
 
     const aiContent = document.getElementById('aiContent');
+    if(!aiContent) return;
+    
     aiContent.innerHTML = `<div style="text-align:center; padding: 40px; color: var(--text-3); font-weight: 600;">Aggressively auditing your finances...</div>`;
     showModal('aiModal');
 
-    const totalSubs = state.subs.reduce((sum, s) => sum + s.cost, 0) * 12;
-    const txs = state.transactions.filter(t => t.month === state.currentMonth).slice(0, 50);
+    const totalSubs = (state.subs||[]).reduce((sum, s) => sum + (s.cost||0), 0) * 12;
+    const txs = (state.transactions||[]).filter(t => t && t.month === state.currentMonth).slice(0, 50);
 
     const prompt = `You are a ruthless but helpful financial auditor. 
 My current annual subscription cost is $${totalSubs}.
