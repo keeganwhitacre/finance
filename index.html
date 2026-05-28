@@ -324,6 +324,15 @@
       <!-- Surplus Injection Target -->
       <div id="auditSurplusWrap"></div>
 
+      <!-- NEW: TRENDS WIDGET -->
+      <div class="insight-card" id="trendCard" style="display: none;">
+        <div class="insight-header"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="color: var(--accent);"><path d="M3 3v18h18"/><path d="m19 9-5 5-4-4-3 3"/></svg> 6-Month Trend</div>
+        <div style="font-size: 14px; color: var(--text-2); font-weight: 500; margin-bottom: 16px;">Total flexible spending per month</div>
+        <div id="trendChartContainer" style="display: flex; height: 120px; align-items: flex-end; justify-content: space-around; gap: 8px;">
+          <!-- Bars injected via JS -->
+        </div>
+      </div>
+
       <div class="insight-card">
         <div class="insight-header"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="color: var(--epub);"><path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"/></svg> Roast My Spend</div>
         <div class="insight-body">Have AI aggressively audit your recent transactions and subscriptions to find your money leaks.</div>
@@ -541,12 +550,17 @@
       return d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
   }
 
-  // --- BUG FIX: yyyMm was checked instead of yyyyMm ---
   const formatMonthDisplay = (yyyyMm) => {
     if (!yyyyMm || typeof yyyyMm !== 'string' || !/^\d{4}-\d{2}$/.test(yyyyMm)) return "Unknown Month";
     const [y, m] = yyyyMm.split('-');
     const months = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
     return `${months[parseInt(m, 10) - 1]} ${y}`;
+  };
+
+  const formatShortMonth = (yyyyMm) => {
+    if (!yyyyMm || typeof yyyyMm !== 'string' || !/^\d{4}-\d{2}$/.test(yyyyMm)) return "";
+    const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    return months[parseInt(yyyyMm.split('-')[1], 10) - 1];
   };
 
   // --- STATE ---
@@ -892,6 +906,44 @@
     const surplusContainer = document.getElementById('auditSurplusWrap');
     if(surplusContainer) surplusContainer.innerHTML = surplusHtml;
 
+    // --- 6 MONTH TREND CALCULATION ---
+    const allTxMonths = [...new Set(state.transactions.map(t => t.month).filter(mx => /^\d{4}-\d{2}$/.test(mx)))].sort();
+    const trendData = [];
+    allTxMonths.forEach(mx => {
+        const spend = state.transactions.filter(t => t.month === mx && t.category !== 'Subscriptions').reduce((s, t) => s + (parseFloat(t.amount)||0), 0);
+        trendData.push({ month: mx, spend });
+    });
+    
+    const currIdx = trendData.findIndex(d => d.month === state.currentMonth);
+    let displayTrends = [];
+    if (currIdx !== -1) {
+        displayTrends = trendData.slice(Math.max(0, currIdx - 5), currIdx + 1);
+    } else {
+        displayTrends = trendData.slice(-6);
+    }
+
+    const trendContainer = document.getElementById('trendChartContainer');
+    const trendCard = document.getElementById('trendCard');
+    if (displayTrends.length > 1 && trendContainer && trendCard) {
+        const maxSpend = Math.max(...displayTrends.map(d => d.spend)) || 1;
+        trendContainer.innerHTML = displayTrends.map(d => {
+            const h = Math.max(4, (d.spend / maxSpend) * 80); // max height 80px
+            const isCur = d.month === state.currentMonth;
+            const fmtAmt = d.spend > 999 ? (d.spend/1000).toFixed(1) + 'k' : Math.round(d.spend);
+            return `
+            <div style="flex:1; display:flex; flex-direction:column; justify-content:flex-end; align-items:center; gap:6px;">
+                <div style="font-size:11px; font-weight:700; color:var(--text-3);">${d.spend === 0 ? '' : '$'+fmtAmt}</div>
+                <div style="width:100%; max-width:32px; border-radius:6px; background:var(--accent); height:${h}px; opacity:${isCur ? '1' : '0.4'}; transition: height 0.5s var(--spring);"></div>
+                <div style="font-size:12px; font-weight:700; color:${isCur ? 'var(--text-1)' : 'var(--text-3)'};">${formatShortMonth(d.month)}</div>
+            </div>
+            `;
+        }).join('');
+        trendCard.style.display = 'flex';
+    } else if (trendCard) {
+        trendCard.style.display = 'none';
+    }
+
+    // --- CATEGORY BREAKDOWN ---
     let catTotals = {}; let totalMonthSpend = 0;
     txs.forEach(t => { catTotals[t.category] = (catTotals[t.category] || 0) + (parseFloat(t.amount)||0); totalMonthSpend += (parseFloat(t.amount)||0); });
 
@@ -1149,3 +1201,4 @@
 </script>
 </body>
 </html>
+
