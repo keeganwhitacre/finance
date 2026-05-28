@@ -756,8 +756,8 @@
   // --- STATE ---
   let state = {
     accounts: [], subs: [], transactions: [],
-    budgets: { 'Groceries': 400, 'Restaurants': 300, 'Gas': 150, 'Shopping': 200 },
-    monthlyIncome: 6500, monthlySavingsTarget: 1500, currentMonth: '', netWorthHistory: {}, activeTab: 'budget'
+    budgets: { 'Groceries': 350, 'Dining & Drinks': 300, 'Gas & Transit': 150, 'Shopping & Fun': 352 },
+    monthlyIncome: 3250, monthlySavingsTarget: 1500, currentMonth: '', netWorthHistory: {}, activeTab: 'budget'
   };
   let appSettings = { theme: 'auto', geminiKey: '', githubToken: '', gistId: '' };
 
@@ -1602,7 +1602,13 @@ Transactions to map: ${JSON.stringify(txData)}`;
             if (subNames.some(sn => sn && rawMerchant.toLowerCase().includes(sn))) {
                 categoryStr = 'Subscriptions';
                 isExcluded = true;
-            } else if (categoryStr !== 'Other' && categoryStr !== 'Subscriptions' && state.budgets[categoryStr] === undefined) state.budgets[categoryStr] = 0;
+            } else {
+                // FIX: Stop Apple Card CSV from creating random categories!
+                // If it's not a known budget category, force it to 'Other'.
+                if (categoryStr !== 'Other' && categoryStr !== 'Subscriptions' && state.budgets[categoryStr] === undefined) {
+                    categoryStr = 'Other'; 
+                }
+            }
 
             const uniqueId = `${safeDate}-${rawMerchant.replace(/\s/g, '')}-${amount}-${i}`;
             if (state.transactions.some(t => t && t.id === uniqueId) || newTxs.some(t => t && t.id === uniqueId)) { duplicates++; continue; }
