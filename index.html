@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <html lang="en" data-theme="auto">
 <head>
@@ -350,6 +349,10 @@
     .magic-btn.loading { animation: pulseAI 1s infinite alternate; pointer-events: none;}
     @keyframes pulseAI { 0% { opacity: 0.5; } 100% { opacity: 1; } }
 
+    /* ── Savings Goals ── */
+    .goal-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; margin: 0 20px 24px; }
+    .goal-card { background: var(--bg-surface); border: 0.5px solid var(--border); border-radius: 20px; padding: 16px; box-shadow: 0 4px 16px rgba(0,0,0,0.03); display: flex; flex-direction: column; cursor: pointer; transition: transform 0.15s var(--spring); position: relative; overflow: hidden;}
+    .goal-card:active { transform: scale(0.96); }
   </style>
 </head>
 <body>
@@ -450,6 +453,16 @@
           </div>
         </div>
       </div>
+
+      <!-- SAVINGS GOALS (NEW) -->
+      <div class="section-title">
+         <span>Savings Goals</span>
+         <div style="display:flex; gap: 8px;">
+             <span class="btn-text" onclick="haptic([10]); openRoutineModal('fundGoal')">Fund</span>
+             <span class="btn-text" onclick="haptic([10]); openGoalModal()">Add</span>
+         </div>
+      </div>
+      <div class="goal-grid" id="goalsGrid"></div>
 
       <div class="section-title"><span>Cash & Assets</span><span class="btn-text" onclick="haptic([10]); openAccountModal('asset')">Add</span></div>
       <div class="lgroup" id="assetsList"></div>
@@ -609,6 +622,28 @@
       <!-- CATEGORY DRILL-DOWN VIEW -->
       <div class="field-label" id="catTxLabel" style="display:none; margin-top: 32px; color: var(--accent);">This Month's Spending</div>
       <div class="lgroup" id="categoryTxList" style="margin: 0; display:none;"></div>
+    </div>
+  </div>
+
+  <!-- Savings Goal Modal -->
+  <div class="sheet" id="goalModal">
+    <div class="grip-row"><div class="grip"></div></div>
+    <div class="sheet-head"><div class="sheet-title" id="goalModalTitle">Add Goal</div></div>
+    <div class="sheet-sep"></div>
+    <div class="sheet-scroll">
+      <form id="goalForm" onsubmit="saveGoal(event)">
+        <input type="hidden" id="goalId">
+        <div style="display: flex; gap: 12px; margin-bottom: 20px;">
+          <div style="flex: 1;"><div class="field-label">Emoji</div><input id="goalEmoji" class="edit-field" placeholder="🎓" maxlength="2" style="text-align: center;" /></div>
+          <div style="flex: 3;"><div class="field-label">Goal Name</div><input id="goalName" required class="edit-field" placeholder="e.g. PhD Apps" /></div>
+        </div>
+        <div style="display: flex; gap: 16px; margin-bottom: 32px;">
+          <div style="flex: 1;"><div class="field-label">Target ($)</div><input id="goalTarget" type="number" step="1" required class="edit-field" placeholder="1500" /></div>
+          <div style="flex: 1;"><div class="field-label">Saved ($)</div><input id="goalSaved" type="number" step="0.01" class="edit-field" placeholder="0" /></div>
+        </div>
+        <button type="submit" class="btn-primary" onclick="haptic([15])">Save Goal Target</button>
+        <button type="button" id="deleteGoalBtn" onclick="haptic([20, 20]); deleteGoal()" class="btn-primary btn-danger" style="display: none; background: rgba(255,59,48,0.1);">Delete Goal</button>
+      </form>
     </div>
   </div>
 
@@ -854,16 +889,16 @@ function updateContentPadding() {
     budgets: { 'Groceries': 350, 'Dining & Drinks': 300, 'Gas & Transit': 150, 'Shopping & Fun': 352 },
     monthlyIncome: 3250, monthlySavingsTarget: 1500, currentMonth: '', netWorthHistory: {}, activeTab: 'budget',
     goals: [
-  {
-    id: 'abc123',
-    name: 'PhD Applications',
-    emoji: '🎓',
-    targetAmount: 1500,
-    targetDate: '2026-10-01',   // ISO date
-    savedAmount: 0,             // manually tracked OR pulled from linkedAccountId
-    linkedAccountId: 'ueybqbyn6'  // your HYSA — the obvious destination
-  }
-]
+        {
+          id: 'abc123',
+          name: 'PhD Applications',
+          emoji: '🎓',
+          targetAmount: 1500,
+          targetDate: '2026-10-01',   // ISO date
+          savedAmount: 0,             // manually tracked OR pulled from linkedAccountId
+          linkedAccountId: 'ueybqbyn6'  // your HYSA — the obvious destination
+        }
+    ]
   };
   let appSettings = { theme: 'auto', geminiKey: '', githubToken: '', gistId: '' };
 
@@ -880,6 +915,7 @@ function updateContentPadding() {
     if (!state.netWorthHistory) state.netWorthHistory = {};
     if (!state.budgets) state.budgets = {};
     if (!state.transactions) state.transactions = [];
+    if (!state.goals) state.goals = [];
 
     state.transactions.forEach(t => {
       if (t && t.date) {
@@ -957,7 +993,7 @@ function saveData() { updateHistoryPoint(); pruneHistory(); localStorage.setItem
       });
       bind('btn-clear-data', 'click', () => {
         if (!confirm('Clear all local data? This cannot be undone.')) return;
-        state.accounts = []; state.transactions = []; state.subs = []; state.netWorthHistory = {}; state.budgets = { 'Groceries': 350, 'Dining & Drinks': 300, 'Gas & Transit': 150, 'Shopping & Fun': 352 };
+        state.accounts = []; state.transactions = []; state.subs = []; state.goals = []; state.netWorthHistory = {}; state.budgets = { 'Groceries': 350, 'Dining & Drinks': 300, 'Gas & Transit': 150, 'Shopping & Fun': 352 };
         saveData(); renderAll(); closeAllModals(); toast('Local Data Cleared');
       });
       
@@ -1077,6 +1113,36 @@ function saveData() { updateHistoryPoint(); pruneHistory(); localStorage.setItem
     const monthlyBurn = Object.values(state.budgets || {}).reduce((s, v) => s + (v||0), 0) + (state.subs || []).reduce((s, x) => s + (x.cost||0), 0);
     setSafeText('dashRunway', `${monthlyBurn > 0 ? (totalAssets / monthlyBurn).toFixed(1) : 0} Mos`);
     setSafeText('dashRatio', `${totalDebt > 0 ? (totalAssets / totalDebt).toFixed(1) : (totalAssets > 0 ? "∞" : 0)}x`);
+
+    // SAVINGS GOALS RENDER
+    const goalsArr = state.goals || [];
+    let goalsHtml = goalsArr.map(g => {
+         const pct = g.targetAmount > 0 ? Math.min((g.savedAmount / g.targetAmount) * 100, 100) : 0;
+         const isComplete = g.targetAmount > 0 && g.savedAmount >= g.targetAmount;
+         return `
+         <div class="goal-card" onclick="haptic([10]); openGoalModal('${g.id}')">
+            <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 12px;">
+               <div style="font-size: 28px; line-height: 1;">${g.emoji || '🎯'}</div>
+               ${isComplete ? `<div style="color: var(--loved);"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg></div>` : `<div style="font-size: 13px; font-weight: 700; color: var(--text-3);">${pct.toFixed(0)}%</div>`}
+            </div>
+            <div style="font-weight: 800; font-size: 16px; color: var(--text-1); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-bottom: 2px;">${g.name}</div>
+            <div style="font-size: 13px; color: var(--text-3); font-weight: 600;">${formatMoney(g.savedAmount)} / ${formatMoney(g.targetAmount)}</div>
+            <div class="prog-track" style="margin-top: 10px; height: 6px; background: var(--bg-input);">
+                <div class="prog-fill" style="width: ${pct}%; background: ${isComplete ? 'var(--loved)' : 'var(--accent)'};"></div>
+            </div>
+         </div>`;
+    }).join('');
+    
+    // Add New Goal Placholder if empty
+    if(goalsArr.length === 0) {
+      goalsHtml += `
+          <div class="goal-card" style="justify-content: center; align-items: center; border: 2px dashed var(--border); background: transparent; box-shadow: none; min-height: 120px;" onclick="haptic([10]); openGoalModal()">
+             <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="var(--text-3)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="margin-bottom: 8px;"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+             <div style="font-size: 14px; font-weight: 700; color: var(--text-3);">Create Target</div>
+          </div>
+      `;
+    }
+    setSafeHTML('goalsGrid', goalsHtml);
 
     setSafeHTML('assetsList', assetsArr.length === 0 ? `<div style="padding:30px;text-align:center;color:var(--text-3);font-weight:600;">No assets added.</div>` : assetsArr.map(a => `
       <button class="lrow" onclick="openAccountModal('${a.id}')">
@@ -1263,7 +1329,10 @@ function saveData() { updateHistoryPoint(); pruneHistory(); localStorage.setItem
         surplusHtml = `
           <div class="insight-card" style="background: rgba(52,199,89,0.05); border-color: rgba(52,199,89,0.2);">
             <div class="insight-header"><span style="color: var(--loved);">+${formatMoney(surplus)} Surplus</span></div>
-            <div class="insight-body">You stayed under budget last month! Consider transferring this excess cash into your savings or investment accounts to maximize your runway.</div>
+            <div class="insight-body" style="margin-bottom: 12px;">You stayed under budget last month! Consider transferring this excess cash into your savings goals to maximize your runway.</div>
+            <button class="btn-text" style="align-self: flex-start; margin: 0; background: rgba(52,199,89,0.15); color: var(--loved);" onclick="haptic([10]); openRoutineModal('fundGoal')">
+                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 4px;"><path d="M12 5v14"/><path d="M5 12h14"/></svg> Allocate Surplus
+            </button>
           </div>
         `;
       }
@@ -1333,16 +1402,62 @@ function saveData() { updateHistoryPoint(); pruneHistory(); localStorage.setItem
   // --- MODALS & SYNC ---
   const overlay = document.getElementById('overlay'); let activeSheet = null;
   function showModal(id) { if (activeSheet) document.getElementById(activeSheet)?.classList.remove('on'); activeSheet = id; overlay?.classList.add('on'); document.getElementById(id)?.classList.add('on'); }
-  function closeAllModals() { overlay?.classList.remove('on'); ['accountModal', 'txModal', 'aiModal', 'settingsModal', 'subModal', 'categoryModal', 'monthModal', 'routineModal'].forEach(id => document.getElementById(id)?.classList.remove('on')); activeSheet = null; }
+  function closeAllModals() { overlay?.classList.remove('on'); ['accountModal', 'txModal', 'aiModal', 'settingsModal', 'subModal', 'categoryModal', 'monthModal', 'routineModal', 'goalModal'].forEach(id => document.getElementById(id)?.classList.remove('on')); activeSheet = null; }
   overlay?.addEventListener('click', closeAllModals);
 
   // Swipe to dismiss bottom sheets
-  ['accountModal', 'txModal', 'aiModal', 'settingsModal', 'subModal', 'categoryModal', 'monthModal', 'routineModal'].forEach(id => {
+  ['accountModal', 'txModal', 'aiModal', 'settingsModal', 'subModal', 'categoryModal', 'monthModal', 'routineModal', 'goalModal'].forEach(id => {
     let sY = 0, iD = false; const s = document.getElementById(id); if(!s) return; const sc = s.querySelector('.sheet-scroll');
     s.addEventListener('touchstart', e => { if (sc && sc.scrollTop > 0) return; sY = e.touches[0].clientY; iD = true; }, { passive: true });
     s.addEventListener('touchmove', e => { if (!iD) return; const dy = e.touches[0].clientY - sY; if (dy > 0) s.style.transform = `translateY(${dy}px) translateZ(0)`; }, { passive: true });
     s.addEventListener('touchend', e => { if (!iD) return; iD = false; if (e.changedTouches[0].clientY - sY > 120) { s.style.transform = ''; closeAllModals(); } else s.style.transform = ''; });
   });
+
+  // SAVINGS GOAL LOGIC
+  window.openGoalModal = function(id = null) {
+      document.getElementById('goalForm').reset();
+      const dBtn = document.getElementById('deleteGoalBtn');
+      if (id) {
+          const g = state.goals.find(x => x.id === id); if(!g) return;
+          setSafeText('goalModalTitle', 'Edit Goal');
+          document.getElementById('goalId').value = g.id;
+          document.getElementById('goalEmoji').value = g.emoji || '';
+          document.getElementById('goalName').value = g.name || '';
+          document.getElementById('goalTarget').value = g.targetAmount || '';
+          document.getElementById('goalSaved').value = g.savedAmount || 0;
+          if(dBtn) dBtn.style.display = 'block';
+      } else {
+          setSafeText('goalModalTitle', 'Add Goal');
+          document.getElementById('goalId').value = '';
+          document.getElementById('goalEmoji').value = '🎯';
+          document.getElementById('goalSaved').value = 0;
+          if(dBtn) dBtn.style.display = 'none';
+      }
+      showModal('goalModal');
+  }
+
+  window.saveGoal = function(e) {
+      e.preventDefault();
+      const id = document.getElementById('goalId').value || generateId();
+      const newGoal = {
+          id,
+          emoji: document.getElementById('goalEmoji').value || '🎯',
+          name: document.getElementById('goalName').value,
+          targetAmount: parseFloat(document.getElementById('goalTarget').value) || 0,
+          savedAmount: parseFloat(document.getElementById('goalSaved').value) || 0
+      };
+      if(!state.goals) state.goals = [];
+      const idx = state.goals.findIndex(x => x.id === id);
+      if (idx > -1) state.goals[idx] = newGoal; else state.goals.push(newGoal);
+      saveData(); renderWealth(); closeAllModals(); toast('Goal saved');
+  }
+
+  window.deleteGoal = function() {
+      if(confirm('Delete this savings goal?')) {
+          state.goals = state.goals.filter(g => g.id !== document.getElementById('goalId').value);
+          saveData(); renderWealth(); closeAllModals(); toast('Goal deleted');
+      }
+  }
 
   // SMART ROUTINE LOGIC
   window.openRoutineModal = function(type) {
@@ -1351,7 +1466,7 @@ function saveData() { updateHistoryPoint(); pruneHistory(); localStorage.setItem
       const assets = state.accounts.filter(a => !a.isLiability);
       const debts = state.accounts.filter(a => a.isLiability && a.balance > 0);
 
-      if (assets.length === 0) return toast("Add a Cash/Asset account first.");
+      if (type !== 'fundGoal' && assets.length === 0) return toast("Add a Cash/Asset account first.");
 
       let html = '';
       if (type === 'paycheck') {
@@ -1404,6 +1519,19 @@ function saveData() { updateHistoryPoint(); pruneHistory(); localStorage.setItem
               <select id="routineDest" class="edit-field" style="appearance: none; margin-bottom: 32px;">${options}</select>
               <button class="btn-primary" onclick="haptic([15]); executeRoutine('yield')" style="background: var(--epub);">Add Yield</button>
           `;
+      } else if (type === 'fundGoal') {
+          titleEl.innerText = "Fund Savings Goal";
+          const goals = (state.goals||[]).filter(g => g.savedAmount < g.targetAmount);
+          if(goals.length === 0) return toast("No active goals left to fund.");
+          let options = goals.map(g => `<option value="${g.id}">${g.emoji} ${g.name} (Needs ${formatMoney(g.targetAmount - g.savedAmount)})</option>`).join('');
+          html = `
+              <div class="insight-body" style="margin-bottom: 20px;">Allocate surplus cash or transfer from your HYSA into a specific savings goal.</div>
+              <div class="field-label">Amount to Add ($)</div>
+              <input type="number" id="routineAmt" step="0.01" class="edit-field" placeholder="0.00" style="margin-bottom: 20px; font-size: 24px; font-weight: 800; color: var(--text-1);" />
+              <div class="field-label">Select Goal</div>
+              <select id="routineDest" class="edit-field" style="appearance: none; margin-bottom: 32px;">${options}</select>
+              <button class="btn-primary" onclick="haptic([15]); executeRoutine('fundGoal')" style="background: var(--accent);">Allocate Funds</button>
+          `;
       }
       bodyEl.innerHTML = html;
       showModal('routineModal');
@@ -1438,6 +1566,14 @@ function saveData() { updateHistoryPoint(); pruneHistory(); localStorage.setItem
           const destId = document.getElementById('routineDest').value;
           const acc = state.accounts.find(a => a.id === destId);
           if(acc) { acc.balance += amt; saveData(); renderWealth(); toast("Yield added to balance"); }
+      } else if (type === 'fundGoal') {
+          const amt = parseFloat(document.getElementById('routineAmt').value) || 0;
+          const destId = document.getElementById('routineDest').value;
+          const goal = state.goals.find(g => g.id === destId);
+          if(goal && amt > 0) {
+              goal.savedAmount = (goal.savedAmount || 0) + amt;
+              saveData(); renderWealth(); renderAudit(); toast(`Allocated ${formatMoney(amt)} to ${goal.name}`);
+          }
       }
       closeAllModals();
   }
