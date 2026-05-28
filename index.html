@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="en" data-theme="auto">
 <head>
@@ -540,10 +541,10 @@
       return d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
   }
 
-  // Strict String Array matching to completely bypass iOS toLocaleString bugs
+  // --- BUG FIX: yyyMm was checked instead of yyyyMm ---
   const formatMonthDisplay = (yyyyMm) => {
-    if (!yyyyMm || typeof yyyMm !== 'string' || !/^\d{4}-\d{2}$/.test(yyyyMm)) return "Unknown Month";
-    const [y, m] = yyyMm.split('-');
+    if (!yyyyMm || typeof yyyyMm !== 'string' || !/^\d{4}-\d{2}$/.test(yyyyMm)) return "Unknown Month";
+    const [y, m] = yyyyMm.split('-');
     const months = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
     return `${months[parseInt(m, 10) - 1]} ${y}`;
   };
