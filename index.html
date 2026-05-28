@@ -190,6 +190,11 @@
     .edit-field:focus { border-color: var(--accent); }
     .edit-field::placeholder { color: var(--text-3); font-weight: 500; }
     
+    /* Search Bar Specific */
+    .search-wrap { margin: 0 20px 16px; position: relative; }
+    .search-input { width: 100%; box-sizing: border-box; background: var(--bg-surface); border: 0.5px solid var(--border); border-radius: 12px; color: var(--text-1); font-size: 16px; font-weight: 500; padding: 12px 16px 12px 40px; outline: none; font-family: var(--font-sans); box-shadow: 0 2px 8px rgba(0,0,0,0.02); }
+    .search-icon { position: absolute; left: 12px; top: 50%; transform: translateY(-50%); color: var(--text-3); pointer-events: none; }
+
     .btn-primary { width: 100%; box-sizing: border-box; background: var(--fab-bg); color: var(--fab-fg); padding: 16px; border-radius: 16px; font-size: 17px; font-weight: 700; letter-spacing: -0.01em; transition: opacity 0.15s, transform 0.1s; margin-bottom: 12px; display: flex; align-items: center; justify-content: center; gap: 8px; border: 0.5px solid transparent;}
     .btn-primary:active { opacity: 0.7; transform: scale(0.98); }
     .btn-danger { color: var(--pass); background: rgba(255,59,48,0.1); border: none; }
@@ -454,6 +459,13 @@
               <span class="btn-text" onclick="haptic([10]); openTxModal()">Add Manual</span>
           </div>
       </div>
+      
+      <!-- SEARCH BAR -->
+      <div class="search-wrap">
+        <svg class="search-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+        <input type="text" id="txSearchInput" class="search-input" placeholder="Search merchants or amounts..." oninput="filterTransactions()" />
+      </div>
+
       <div class="lgroup" style="margin-bottom: 0;">
         <label class="lrow" style="cursor: pointer; padding: 16px; background: var(--bg-surface2);">
           <div class="tx-icon" style="background: rgba(0,122,255,0.1); color: var(--accent); border:none;"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" x2="12" y1="3" y2="15"/></svg></div>
@@ -715,12 +727,15 @@
 
   const getLocalISODate = () => { const tzoffset = (new Date()).getTimezoneOffset() * 60000; return new Date(Date.now() - tzoffset).toISOString().slice(0, 10); };
 
-  // SMARTER MERCHANT CLEANING (Strips phone numbers, long digits, and state/country suffixes)
+  // AGGRESSIVE MERCHANT CLEANING (Strips URLs, phones, long digits, and state/country suffixes/junk)
   function cleanMerchantName(rawName) {
     let n = rawName.toUpperCase();
+    n = n.replace(/HTTPS?:\/\/\S+/g, '');
     n = n.replace(/\b\d{3}[-.]?\d{3}[-.]?\d{4}\b/g, ''); 
     n = n.replace(/(#\d+|[\d]{4,})/g, '');
-    n = n.replace(/\b(STORE|MKT|REST|INC|LLC|USA|OH|CA|TX|NY)\b/gi, ''); 
+    n = n.replace(/\b(STORE|MKT|REST|INC|LLC|USA|OH|CA|TX|NY|FL|WA)\b/gi, ''); 
+    n = n.replace(/[*&_@]/g, ' ');
+    n = n.replace(/[,.]/g, '');
     return n.replace(/\s+/g, ' ').trim() || rawName;
   }
 
@@ -1024,14 +1039,16 @@
   }
 
   function renderBudget() {
-    const txs = (state.transactions || []).filter(t => t && t.month === state.currentMonth);
+    const txSearchInput = document.getElementById('txSearchInput');
+    const query = txSearchInput ? txSearchInput.value.toLowerCase() : '';
+    
+    let allMonthTxs = (state.transactions || []).filter(t => t && t.month === state.currentMonth);
     const totalSubs = (state.subs || []).reduce((sum, s) => sum + (s.cost||0), 0);
     setSafeText('dashFixedBills', formatMoney(totalSubs));
 
     const availableToSpend = Math.max(0, state.monthlyIncome - state.monthlySavingsTarget - totalSubs);
     
-    // IGNORING IS_EXCLUDED TRANSACTIONS
-    const flexTxs = txs.filter(t => t.category !== 'Subscriptions' && !t.isExcluded);
+    const flexTxs = allMonthTxs.filter(t => t.category !== 'Subscriptions' && !t.isExcluded);
     const flexSpent = flexTxs.reduce((sum, t) => sum + (parseFloat(t.amount)||0), 0);
     
     const gap = availableToSpend - flexSpent;
@@ -1067,7 +1084,6 @@
 
     const widget = document.getElementById('gapWidget');
     if (widget) {
-        // Reset classes
         widget.classList.remove('danger', 'glow-danger', 'glow-good');
         if (gap < 0) { 
             widget.classList.add('danger', 'glow-danger'); 
@@ -1095,9 +1111,15 @@
         </div>`;
     }).join(''));
 
-    if (txs.length === 0) setSafeHTML('transactionsListWrap', `<div class="lgroup"><div style="padding:40px 20px;text-align:center;color:var(--text-3);font-weight:600;">No transactions for this month.</div></div>`);
+    // FILTER TRANSACTIONS FOR LIST
+    let displayTxs = allMonthTxs;
+    if (query) {
+        displayTxs = displayTxs.filter(t => t.merchant.toLowerCase().includes(query) || t.amount.toString().includes(query));
+    }
+
+    if (displayTxs.length === 0) setSafeHTML('transactionsListWrap', `<div class="lgroup"><div style="padding:40px 20px;text-align:center;color:var(--text-3);font-weight:600;">No transactions found.</div></div>`);
     else {
-        const groupedTxs = {}; txs.forEach(t => { if(!groupedTxs[t.date]) groupedTxs[t.date] = []; groupedTxs[t.date].push(t); });
+        const groupedTxs = {}; displayTxs.forEach(t => { if(!groupedTxs[t.date]) groupedTxs[t.date] = []; groupedTxs[t.date].push(t); });
         const sortedDates = Object.keys(groupedTxs).sort((a,b) => new Date(b) - new Date(a));
         let txHtml = `<div class="lgroup" style="border-top-left-radius: 0; border-top-right-radius: 0; border-top: none;">`;
         sortedDates.forEach(date => {
@@ -1117,6 +1139,11 @@
         });
         setSafeHTML('transactionsListWrap', txHtml + `</div>`);
     }
+  }
+
+  window.filterTransactions = function() {
+      // Just re-render budget view to instantly apply search 
+      renderBudget();
   }
 
   window.runPlanner = function() {
@@ -1642,7 +1669,6 @@ Transactions to map: ${JSON.stringify(txData)}`;
             let dateRaw = row[dateIdx]; let safeDate = safeParseDate(dateRaw);
             if (!safeDate) continue; 
             
-            // Clean merchant text immediately 
             const rawMerchant = descIdx >= 0 && row[descIdx] ? row[descIdx] : 'Unknown';
             const merchant = cleanMerchantName(rawMerchant); 
             
