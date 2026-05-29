@@ -999,6 +999,22 @@ function updateContentPadding() {
     if (saved) { try { state = { ...state, ...JSON.parse(saved) }; } catch(e){} }
     
     if (!state.netWorthHistory) state.netWorthHistory = {};
+
+    // --- MIGRATION: Convert old number-based history to explicit split tracking ---
+    const currentRetirement = (state.accounts || []).filter(a => a && !a.isLiability && a.isRetirement).reduce((s, a) => s + (parseFloat(a.balance)||0), 0);
+    let migrationNeeded = false;
+    Object.keys(state.netWorthHistory).forEach(k => {
+        const v = state.netWorthHistory[k];
+        if (typeof v === 'number') {
+            state.netWorthHistory[k] = {
+                nw: v,
+                liq: v - currentRetirement
+            };
+            migrationNeeded = true;
+        }
+    });
+    if (migrationNeeded) localStorage.setItem('atlas_data_v14', JSON.stringify(state));
+
     if (!state.budgets) state.budgets = {};
     if (!state.transactions) state.transactions = [];
     if (!state.goals) state.goals = [];
@@ -1152,14 +1168,7 @@ function updateContentPadding() {
     // Support both old data (numbers) and new data (objects with nw and liq)
     let data = historyKeys.slice(-chartPeriod).map(k => {
         const v = state.netWorthHistory[k];
-        if (typeof v === 'object' && v !== null) {
-            return wealthViewMode === 'liquid' ? v.liq : v.nw;
-        }
-        // Fallback for old history points
-        const liquidOffset = wealthViewMode === 'liquid'
-            ? (state.accounts||[]).filter(a => a && !a.isLiability && a.isRetirement).reduce((s, a) => s + (parseFloat(a.balance)||0), 0)
-            : 0;
-        return wealthViewMode === 'liquid' ? v - liquidOffset : v;
+        return wealthViewMode === 'liquid' ? (v?.liq ?? v) : (v?.nw ?? v);
     }); 
     
     // If only 1 data point, prepend a synthetic value to the array for rendering so we can draw a line
@@ -1256,10 +1265,7 @@ function updateContentPadding() {
 
     const getDisplayVal = (key) => {
         const val = state.netWorthHistory[key];
-        if (typeof val === 'object' && val !== null) {
-            return wealthViewMode === 'liquid' ? val.liq : val.nw;
-        }
-        return wealthViewMode === 'liquid' ? val - retirementBalance : val;
+        return wealthViewMode === 'liquid' ? (val?.liq ?? val) : (val?.nw ?? val);
     };
 
     const [yr, mo] = todayStr.split('-');
