@@ -429,7 +429,7 @@
         </div>
         <div class="chart-container" id="netWorthChartContainer"><svg class="chart-svg" preserveAspectRatio="none"></svg></div>
         <div class="hero-stats-row">
-          <div style="flex: 1;"><div class="hero-eyebrow">Assets</div><div id="dashTotalAssets" class="hero-stat-val text-loved">$0.00</div></div>
+          <div style="flex: 1;"><div class="hero-eyebrow" id="assetLabel">Assets</div><div id="dashTotalAssets" class="hero-stat-val text-loved">$0.00</div></div>
           <div style="flex: 1;"><div class="hero-eyebrow">Liabilities</div><div id="dashTotalDebt" class="hero-stat-val text-pass">$0.00</div></div>
         </div>
       </div>
@@ -443,7 +443,7 @@
           <div id="dashRatio" style="font-size: 20px; font-weight: 800; color: var(--text-1);">0.0x</div>
         </div>
         <div class="setup-card" style="flex:1;">
-          <div class="setup-label">Month Δ</div>
+          <div class="setup-label" id="dashMonthDeltaLabel">Month Δ</div>
           <div id="dashMonthDelta" style="font-size: 20px; font-weight: 800; color: var(--text-3);">--</div>
         </div>
       </div>
@@ -1031,16 +1031,23 @@ function updateContentPadding() {
     updateHistoryPoint(); renderAll();
   }
 
-function saveData() { updateHistoryPoint(); pruneHistory(); localStorage.setItem('atlas_data_v14', JSON.stringify(state)); }
+  function saveData() { updateHistoryPoint(); pruneHistory(); localStorage.setItem('atlas_data_v14', JSON.stringify(state)); }
   function saveSettings() { localStorage.setItem('atlas_settings_v3', JSON.stringify(appSettings)); }
 
   function updateHistoryPoint() {
     if(!state.accounts || !state.netWorthHistory) return;
-    const assets = state.accounts.filter(a => !a.isLiability).reduce((sum, a) => sum + parseFloat(a.balance), 0);
+    const assetsArr = state.accounts.filter(a => !a.isLiability);
     const debts = state.accounts.filter(a => a.isLiability).reduce((sum, a) => sum + parseFloat(a.balance), 0);
+    const totalAssets = assetsArr.reduce((sum, a) => sum + parseFloat(a.balance), 0);
+    const liquidAssets = assetsArr.filter(a => !a.isRetirement).reduce((sum, a) => sum + parseFloat(a.balance), 0);
+    
     const d = new Date();
     const dateKey = `${getLocalISODate()}T${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
-    state.netWorthHistory[dateKey] = assets - debts;
+    // Save both values explicitly so toggling views uses true historical data
+    state.netWorthHistory[dateKey] = {
+        nw: totalAssets - debts,
+        liq: liquidAssets - debts
+    };
   }
   function pruneHistory() {
     if (!state.netWorthHistory) return;
@@ -1142,7 +1149,18 @@ function saveData() { updateHistoryPoint(); pruneHistory(); localStorage.setItem
         svg.innerHTML = ''; return;
     }
 
-    let data = historyKeys.slice(-chartPeriod).map(k => state.netWorthHistory[k]); 
+    // Support both old data (numbers) and new data (objects with nw and liq)
+    let data = historyKeys.slice(-chartPeriod).map(k => {
+        const v = state.netWorthHistory[k];
+        if (typeof v === 'object' && v !== null) {
+            return wealthViewMode === 'liquid' ? v.liq : v.nw;
+        }
+        // Fallback for old history points
+        const liquidOffset = wealthViewMode === 'liquid'
+            ? (state.accounts||[]).filter(a => a && !a.isLiability && a.isRetirement).reduce((s, a) => s + (parseFloat(a.balance)||0), 0)
+            : 0;
+        return wealthViewMode === 'liquid' ? v - liquidOffset : v;
+    }); 
     
     // If only 1 data point, prepend a synthetic value to the array for rendering so we can draw a line
     // This no longer pollutes the saved `state` dataset
@@ -1150,12 +1168,7 @@ function saveData() { updateHistoryPoint(); pruneHistory(); localStorage.setItem
         data.unshift(data[0] * 0.95);
     }
 
-    // In liquid mode, subtract current retirement balance from all history points as approximation
-    // (valid because retirement balances change slowly via manual updates)
-    const liquidOffset = wealthViewMode === 'liquid'
-      ? (state.accounts||[]).filter(a => a && !a.isLiability && a.isRetirement).reduce((s, a) => s + (parseFloat(a.balance)||0), 0)
-      : 0;
-    const adjustedData = data.map(v => v - liquidOffset);
+    const adjustedData = data;
     const max = Math.max(...adjustedData) * 1.02; const min = Math.min(...adjustedData) * 0.98; const range = (max - min) || 1;
     const w = 300; const h = 80; const dx = w / (adjustedData.length - 1);
     let pathD = `M 0 ${h - ((adjustedData[0] - min) / range) * h}`; let fillD = `M 0 ${h} L 0 ${h - ((adjustedData[0] - min) / range) * h}`; let dots = '';
@@ -1213,22 +1226,24 @@ function saveData() { updateHistoryPoint(); pruneHistory(); localStorage.setItem
     const debtsArr = (state.accounts || []).filter(a => a && a.isLiability);
     const totalAssets = assetsArr.reduce((sum, a) => sum + (parseFloat(a.balance) || 0), 0);
     const totalDebt = debtsArr.reduce((sum, a) => sum + (parseFloat(a.balance) || 0), 0);
+    const retirementBalance = assetsArr.filter(a => a.isRetirement).reduce((sum, a) => sum + (parseFloat(a.balance)||0), 0);
+    const liquidAssets = totalAssets - retirementBalance;
     
-    setSafeText('dashNetWorth', formatMoney(totalAssets - totalDebt));
-    setSafeText('dashTotalAssets', formatMoney(totalAssets));
-    setSafeText('dashTotalDebt', formatMoney(totalDebt));
-
     // --- LIQUID vs TOTAL mode ---
-    const retirementBalance = assetsArr
-      .filter(a => a.isRetirement)
-      .reduce((sum, a) => sum + (parseFloat(a.balance)||0), 0);
-    const liquidNW = (totalAssets - retirementBalance) - totalDebt;
+    const liquidNW = liquidAssets - totalDebt;
     const totalNW  = totalAssets - totalDebt;
     const displayNW = wealthViewMode === 'liquid' ? liquidNW : totalNW;
+    const displayAssets = wealthViewMode === 'liquid' ? liquidAssets : totalAssets;
 
     setSafeText('dashNetWorth', formatMoney(displayNW));
+    setSafeText('dashTotalAssets', formatMoney(displayAssets));
+    setSafeText('dashTotalDebt', formatMoney(totalDebt));
+
     const eyebrow = document.getElementById('nwEyebrow');
     if (eyebrow) eyebrow.textContent = wealthViewMode === 'liquid' ? 'LIQUID NET WORTH' : 'TOTAL NET WORTH';
+    
+    const assetLabel = document.getElementById('assetLabel');
+    if (assetLabel) assetLabel.textContent = wealthViewMode === 'liquid' ? 'Liquid Assets' : 'Total Assets';
 
     renderHistoryChart();
 
@@ -1239,76 +1254,91 @@ function saveData() { updateHistoryPoint(); pruneHistory(); localStorage.setItem
         .filter(k => /^20\d{2}-\d{2}-\d{2}/.test(k))
         .sort();
 
-    // Yesterday delta (on the hero card)
+    const getDisplayVal = (key) => {
+        const val = state.netWorthHistory[key];
+        if (typeof val === 'object' && val !== null) {
+            return wealthViewMode === 'liquid' ? val.liq : val.nw;
+        }
+        return wealthViewMode === 'liquid' ? val - retirementBalance : val;
+    };
+
+    const [yr, mo] = todayStr.split('-');
+    const firstOfMonth = `${yr}-${mo}-01`;
+
+    // This Month delta (on the hero card)
     const deltaEl = document.getElementById('dashNetWorthDelta');
     if (deltaEl) {
-      const prevKeys = histKeys.filter(k => k.slice(0, 10) < todayStr);
+      let prevKeys = histKeys.filter(k => k.slice(0, 10) < firstOfMonth);
+      let baselineKey = null;
       if (prevKeys.length > 0) {
-        const prevTotalVal = state.netWorthHistory[prevKeys[prevKeys.length - 1]];
-        // In liquid mode, subtract current retirement balance as approximation of prior liquid value
-        const prevDisplayVal = wealthViewMode === 'liquid' ? prevTotalVal - retirementBalance : prevTotalVal;
+        baselineKey = prevKeys[prevKeys.length - 1]; // End of last month
+      } else {
+        const monthKeys = histKeys.filter(k => k.slice(0, 10) >= firstOfMonth);
+        if (monthKeys.length > 0) baselineKey = monthKeys[0]; // First record of this month
+      }
+
+      if (baselineKey) {
+        const prevDisplayVal = getDisplayVal(baselineKey);
         const diff = currentNW - prevDisplayVal;
         const sign = diff >= 0 ? '+' : '';
         deltaEl.className = `nw-delta ${diff > 50 ? 'up' : diff < -50 ? 'down' : 'flat'}`;
-        deltaEl.textContent = `${sign}${formatMoney(diff)} since yesterday`;
+        deltaEl.textContent = `${sign}${formatMoney(diff)} this month`;
       } else {
         deltaEl.className = 'nw-delta flat';
         deltaEl.textContent = '—';
       }
     }
 
-    // Month delta (stat tile)
-    const monthDeltaEl = document.getElementById('dashMonthDelta');
-    if (monthDeltaEl) {
-      const [yr, mo] = todayStr.split('-');
-      const firstOfMonth = `${yr}-${mo}-01`;
-      const preMonthKeys = histKeys.filter(k => k.slice(0, 10) < firstOfMonth);
-      if (preMonthKeys.length > 0) {
-        const monthStartTotal = state.netWorthHistory[preMonthKeys[preMonthKeys.length - 1]];
-        const monthStartDisplay = wealthViewMode === 'liquid' ? monthStartTotal - retirementBalance : monthStartTotal;
-        const diff = currentNW - monthStartDisplay;
+    // 7-Day delta (stat tile)
+    const statDeltaEl = document.getElementById('dashMonthDelta');
+    const statLabel = document.getElementById('dashMonthDeltaLabel');
+    if (statLabel) statLabel.textContent = '7-Day Δ';
+    
+    if (statDeltaEl) {
+      const d = new Date(); d.setDate(d.getDate() - 7);
+      const sevenDaysAgo = d.toISOString().slice(0, 10);
+      const pastKeys = histKeys.filter(k => k.slice(0, 10) <= sevenDaysAgo);
+      
+      let baselineKey = null;
+      if (pastKeys.length > 0) baselineKey = pastKeys[pastKeys.length - 1];
+      else if (histKeys.length > 0) baselineKey = histKeys[0];
+
+      if (baselineKey) {
+        const prevDisplayVal = getDisplayVal(baselineKey);
+        const diff = currentNW - prevDisplayVal;
         const sign = diff >= 0 ? '+' : '';
-        monthDeltaEl.textContent = sign + formatMoney(diff);
-        monthDeltaEl.style.color = diff > 50 ? 'var(--loved)' : diff < -50 ? 'var(--pass)' : 'var(--text-3)';
+        statDeltaEl.textContent = sign + formatMoney(diff);
+        statDeltaEl.style.color = diff > 50 ? 'var(--loved)' : diff < -50 ? 'var(--pass)' : 'var(--text-3)';
       } else {
-        monthDeltaEl.textContent = '--';
-        monthDeltaEl.style.color = 'var(--text-3)';
+        statDeltaEl.textContent = '--';
+        statDeltaEl.style.color = 'var(--text-3)';
       }
     }
 
     // --- ALLOCATION BAR ---
     const ALLOC_COLORS = ['#5e5ce6','#0a84ff','#30d158','#bf5af2','#32ade6','#ffd60a','#ff6b6b'];
-    const RETIREMENT_COLOR = '#ff9500'; // amber — visually distinct from both assets and debts
+    const RETIREMENT_COLOR = '#ff9500'; 
     const allBar  = document.getElementById('allocationBar');
     const allLeg  = document.getElementById('allocationLegend');
     const allWrap = document.getElementById('allocationBarWrap');
     if (allBar && allLeg && allWrap) {
       let colorIdx = 0;
-      const segments = [
-        ...assetsArr.map(a => ({
+      const segments = assetsArr.map(a => ({
           name: a.name,
           value: Math.max(0, parseFloat(a.balance)||0),
           color: a.isRetirement ? RETIREMENT_COLOR : ALLOC_COLORS[colorIdx++ % ALLOC_COLORS.length],
-          isDebt: false,
           isRetirement: !!a.isRetirement
-        })),
-        ...debtsArr.map(a => ({
-          name: a.name,
-          value: Math.max(0, parseFloat(a.balance)||0),
-          color: 'var(--pass)',
-          isDebt: true,
-          isRetirement: false
-        }))
-      ].filter(x => x.value > 0);
+      })).filter(x => x.value > 0);
+      
       const grandTotal = segments.reduce((s, x) => s + x.value, 0);
       if (grandTotal > 0) {
         allWrap.style.display = '';
         allBar.innerHTML = segments.map(x =>
-          `<div style="width:${(x.value/grandTotal*100).toFixed(2)}%; background:${x.color}; ${x.isDebt ? 'opacity:0.55;' : ''}"></div>`
+          `<div style="width:${(x.value/grandTotal*100).toFixed(2)}%; background:${x.color};"></div>`
         ).join('');
         allLeg.innerHTML = segments.map(x =>
           `<div class="alloc-leg-item">
-            <div class="alloc-dot" style="background:${x.color}; ${x.isDebt ? 'opacity:0.55;' : ''}"></div>
+            <div class="alloc-dot" style="background:${x.color};"></div>
             <span>${x.name}${x.isRetirement ? ' 🔒' : ''}</span>
             <span style="color:var(--text-3);">${(x.value/grandTotal*100).toFixed(0)}%</span>
           </div>`
@@ -1319,7 +1349,7 @@ function saveData() { updateHistoryPoint(); pruneHistory(); localStorage.setItem
     }
 
     const monthlyBurn = Object.values(state.budgets || {}).reduce((s, v) => s + (v||0), 0) + (state.subs || []).reduce((s, x) => s + (x.cost||0), 0);
-    setSafeText('dashRunway', `${monthlyBurn > 0 ? (totalAssets / monthlyBurn).toFixed(1) : 0} Mos`);
+    setSafeText('dashRunway', `${monthlyBurn > 0 ? (liquidAssets / monthlyBurn).toFixed(1) : 0} Mos`);
     setSafeText('dashRatio', `${totalDebt > 0 ? (totalAssets / totalDebt).toFixed(1) : (totalAssets > 0 ? "∞" : 0)}x`);
 
     // SAVINGS GOALS RENDER
