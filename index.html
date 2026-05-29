@@ -364,7 +364,13 @@
     .period-btn.active { background: rgba(255,255,255,0.18); color: var(--text-1); }
     [data-theme="dark"] .period-btn.active { background: rgba(255,255,255,0.12); }
 
-    /* ── Net worth delta badge ── */
+    /* ── Retirement account badge ── */
+    .retirement-badge { font-size: 11px; font-weight: 800; color: #ff9500; letter-spacing: 0.03em; display: inline-flex; align-items: center; gap: 3px; }
+
+    /* ── NW tap-to-toggle hint ── */
+    .nw-tap-area { cursor: pointer; -webkit-tap-highlight-color: transparent; display: inline-block; }
+    .nw-tap-area:active .hero-title-big { opacity: 0.65; transform: scale(0.97); }
+    .hero-title-big { transition: opacity 0.15s, transform 0.15s; }
     .nw-delta { font-size: 13px; font-weight: 700; letter-spacing: -0.01em; margin-top: 3px; min-height: 18px; }
     .nw-delta.up   { color: var(--loved); }
     .nw-delta.down { color: var(--pass); }
@@ -408,9 +414,10 @@
 
     <!-- ================= VIEW: WEALTH ================= -->
     <div id="view-wealth" class="view">
-      <div class="active-hero hero-wealth" onclick="haptic([10]); openAccountModal('asset')">
-        <div>
-          <div class="hero-eyebrow">Total Net Worth</div>
+      <div class="active-hero hero-wealth">
+        <!-- Tap the label+number to toggle liquid ↔ total view -->
+        <div class="nw-tap-area" onclick="toggleWealthView()">
+          <div class="hero-eyebrow" id="nwEyebrow">LIQUID NET WORTH</div>
           <div id="dashNetWorth" class="hero-title-big">$0.00</div>
           <div id="dashNetWorthDelta" class="nw-delta flat">—</div>
         </div>
@@ -711,12 +718,19 @@
       <form id="accountForm" onsubmit="saveAccount(event)">
         <input type="hidden" id="accountId">
         <div class="field-label">Category</div>
-        <select id="accountIsLiability" class="edit-field" style="appearance: none; margin-bottom: 20px;"><option value="false">Asset (Cash, Investment)</option><option value="true">Liability (Debt, Loan)</option></select>
+        <select id="accountIsLiability" class="edit-field" style="appearance: none; margin-bottom: 20px;" onchange="document.getElementById('accountRetirementRow').style.display = this.value === 'true' ? 'none' : 'flex'"><option value="false">Asset (Cash, Investment)</option><option value="true">Liability (Debt, Loan)</option></select>
         <div class="field-label">Account Name</div><input id="accountName" required class="edit-field" placeholder="e.g. Chase Sapphire" style="margin-bottom: 20px;" />
-        <div style="display: flex; gap: 16px; margin-bottom: 32px;">
+        <div style="display: flex; gap: 16px; margin-bottom: 20px;">
           <div style="flex: 1;"><div class="field-label">Balance ($)</div><input id="accountBalance" type="number" step="0.01" required class="edit-field" placeholder="0.00" /></div>
           <div style="flex: 1;"><div class="field-label">APY / APR (%)</div><input id="accountRate" type="number" step="0.01" class="edit-field" placeholder="0.00" /></div>
         </div>
+        <label class="lrow" id="accountRetirementRow" style="padding: 12px 16px; background: var(--bg-surface2); border: 0.5px solid var(--border); border-radius: 14px; margin-bottom: 32px; cursor: pointer; display: flex;">
+          <div class="lrow-left">
+            <div class="lrow-title">Retirement / Illiquid</div>
+            <div class="lrow-sub" style="font-size: 13px;">Excluded from liquid net worth (OPERS, IRA, Roth, etc.)</div>
+          </div>
+          <div class="lrow-right"><input type="checkbox" id="accountIsRetirement" class="toggle-switch"></div>
+        </label>
         <button type="submit" class="btn-primary" onclick="haptic([15])">Save Account</button>
         <button type="button" id="deleteAccountBtn" onclick="haptic([20, 20]); deleteAccount()" class="btn-primary btn-danger" style="display: none; background: rgba(255,59,48,0.1);">Delete Account</button>
       </form>
@@ -957,6 +971,7 @@ function updateContentPadding() {
   };
   let appSettings = { theme: 'auto', geminiKey: '', githubToken: '', gistId: '' };
   let chartPeriod = 14; // default; updated by setChartPeriod()
+  let wealthViewMode = 'liquid'; // 'liquid' | 'total' — toggled by tapping the NW label
 
   const formatMoney = (num) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(num || 0);
   const generateId = () => Math.random().toString(36).substr(2, 9);
@@ -968,6 +983,12 @@ function updateContentPadding() {
       if (btn) btn.classList.toggle('active', p === n);
     });
     renderHistoryChart();
+  };
+
+  window.toggleWealthView = function() {
+    haptic([8]);
+    wealthViewMode = wealthViewMode === 'liquid' ? 'total' : 'liquid';
+    renderWealth();
   };
 
   // --- INIT & DATA CLEANSING ---
@@ -1112,14 +1133,20 @@ function saveData() { updateHistoryPoint(); pruneHistory(); localStorage.setItem
     if (historyKeys.length < 2) { if(historyKeys.length===1) { const v = state.netWorthHistory[historyKeys[0]]; historyKeys.unshift("Start"); state.netWorthHistory["Start"] = v * 0.95; } else { svg.innerHTML = ''; return; } }
 
     const data = historyKeys.slice(-chartPeriod).map(k => state.netWorthHistory[k]); 
-    const max = Math.max(...data) * 1.02; const min = Math.min(...data) * 0.98; const range = (max - min) || 1;
-    const w = 300; const h = 80; const dx = w / (data.length - 1);
-    let pathD = `M 0 ${h - ((data[0] - min) / range) * h}`; let fillD = `M 0 ${h} L 0 ${h - ((data[0] - min) / range) * h}`; let dots = '';
+    // In liquid mode, subtract current retirement balance from all history points as approximation
+    // (valid because retirement balances change slowly via manual updates)
+    const liquidOffset = wealthViewMode === 'liquid'
+      ? (state.accounts||[]).filter(a => a && !a.isLiability && a.isRetirement).reduce((s, a) => s + (parseFloat(a.balance)||0), 0)
+      : 0;
+    const adjustedData = data.map(v => v - liquidOffset);
+    const max = Math.max(...adjustedData) * 1.02; const min = Math.min(...adjustedData) * 0.98; const range = (max - min) || 1;
+    const w = 300; const h = 80; const dx = w / (adjustedData.length - 1);
+    let pathD = `M 0 ${h - ((adjustedData[0] - min) / range) * h}`; let fillD = `M 0 ${h} L 0 ${h - ((adjustedData[0] - min) / range) * h}`; let dots = '';
 
-    for (let i = 1; i < data.length; i++) {
-      const x = i * dx; const y = h - ((data[i] - min) / range) * h;
+    for (let i = 1; i < adjustedData.length; i++) {
+      const x = i * dx; const y = h - ((adjustedData[i] - min) / range) * h;
       pathD += ` L ${x} ${y}`; fillD += ` L ${x} ${y}`;
-      if (i === data.length - 1) dots += `<circle class="chart-dot" cx="${x}" cy="${y}" r="4" />`;
+      if (i === adjustedData.length - 1) dots += `<circle class="chart-dot" cx="${x}" cy="${y}" r="4" />`;
     }
     fillD += ` L ${w} ${h} Z`; svg.setAttribute('viewBox', `0 0 ${w} ${h}`); svg.innerHTML = `
   <defs>
@@ -1173,10 +1200,23 @@ function saveData() { updateHistoryPoint(); pruneHistory(); localStorage.setItem
     setSafeText('dashNetWorth', formatMoney(totalAssets - totalDebt));
     setSafeText('dashTotalAssets', formatMoney(totalAssets));
     setSafeText('dashTotalDebt', formatMoney(totalDebt));
+
+    // --- LIQUID vs TOTAL mode ---
+    const retirementBalance = assetsArr
+      .filter(a => a.isRetirement)
+      .reduce((sum, a) => sum + (parseFloat(a.balance)||0), 0);
+    const liquidNW = (totalAssets - retirementBalance) - totalDebt;
+    const totalNW  = totalAssets - totalDebt;
+    const displayNW = wealthViewMode === 'liquid' ? liquidNW : totalNW;
+
+    setSafeText('dashNetWorth', formatMoney(displayNW));
+    const eyebrow = document.getElementById('nwEyebrow');
+    if (eyebrow) eyebrow.textContent = wealthViewMode === 'liquid' ? 'LIQUID NET WORTH' : 'TOTAL NET WORTH';
+
     renderHistoryChart();
 
     // --- NET WORTH DELTAS ---
-    const currentNW = totalAssets - totalDebt;
+    const currentNW = displayNW;
     const todayStr = getLocalISODate();
     const histKeys = Object.keys(state.netWorthHistory || {}).sort();
 
@@ -1185,8 +1225,10 @@ function saveData() { updateHistoryPoint(); pruneHistory(); localStorage.setItem
     if (deltaEl) {
       const prevKeys = histKeys.filter(k => k.slice(0, 10) < todayStr);
       if (prevKeys.length > 0) {
-        const prevVal = state.netWorthHistory[prevKeys[prevKeys.length - 1]];
-        const diff = currentNW - prevVal;
+        const prevTotalVal = state.netWorthHistory[prevKeys[prevKeys.length - 1]];
+        // In liquid mode, subtract current retirement balance as approximation of prior liquid value
+        const prevDisplayVal = wealthViewMode === 'liquid' ? prevTotalVal - retirementBalance : prevTotalVal;
+        const diff = currentNW - prevDisplayVal;
         const sign = diff >= 0 ? '+' : '';
         deltaEl.className = `nw-delta ${diff > 50 ? 'up' : diff < -50 ? 'down' : 'flat'}`;
         deltaEl.textContent = `${sign}${formatMoney(diff)} since yesterday`;
@@ -1203,8 +1245,9 @@ function saveData() { updateHistoryPoint(); pruneHistory(); localStorage.setItem
       const firstOfMonth = `${yr}-${mo}-01`;
       const preMonthKeys = histKeys.filter(k => k.slice(0, 10) < firstOfMonth);
       if (preMonthKeys.length > 0) {
-        const monthStartVal = state.netWorthHistory[preMonthKeys[preMonthKeys.length - 1]];
-        const diff = currentNW - monthStartVal;
+        const monthStartTotal = state.netWorthHistory[preMonthKeys[preMonthKeys.length - 1]];
+        const monthStartDisplay = wealthViewMode === 'liquid' ? monthStartTotal - retirementBalance : monthStartTotal;
+        const diff = currentNW - monthStartDisplay;
         const sign = diff >= 0 ? '+' : '';
         monthDeltaEl.textContent = sign + formatMoney(diff);
         monthDeltaEl.style.color = diff > 50 ? 'var(--loved)' : diff < -50 ? 'var(--pass)' : 'var(--text-3)';
@@ -1215,14 +1258,28 @@ function saveData() { updateHistoryPoint(); pruneHistory(); localStorage.setItem
     }
 
     // --- ALLOCATION BAR ---
-    const ALLOC_COLORS = ['#5e5ce6','#0a84ff','#30d158','#ff9f0a','#bf5af2','#32ade6','#ffd60a','#ff6b6b'];
+    const ALLOC_COLORS = ['#5e5ce6','#0a84ff','#30d158','#bf5af2','#32ade6','#ffd60a','#ff6b6b'];
+    const RETIREMENT_COLOR = '#ff9500'; // amber — visually distinct from both assets and debts
     const allBar  = document.getElementById('allocationBar');
     const allLeg  = document.getElementById('allocationLegend');
     const allWrap = document.getElementById('allocationBarWrap');
     if (allBar && allLeg && allWrap) {
+      let colorIdx = 0;
       const segments = [
-        ...assetsArr.map((a, i) => ({ name: a.name, value: Math.max(0, parseFloat(a.balance)||0), color: ALLOC_COLORS[i % ALLOC_COLORS.length], isDebt: false })),
-        ...debtsArr.map(a =>        ({ name: a.name, value: Math.max(0, parseFloat(a.balance)||0), color: 'var(--pass)',  isDebt: true  }))
+        ...assetsArr.map(a => ({
+          name: a.name,
+          value: Math.max(0, parseFloat(a.balance)||0),
+          color: a.isRetirement ? RETIREMENT_COLOR : ALLOC_COLORS[colorIdx++ % ALLOC_COLORS.length],
+          isDebt: false,
+          isRetirement: !!a.isRetirement
+        })),
+        ...debtsArr.map(a => ({
+          name: a.name,
+          value: Math.max(0, parseFloat(a.balance)||0),
+          color: 'var(--pass)',
+          isDebt: true,
+          isRetirement: false
+        }))
       ].filter(x => x.value > 0);
       const grandTotal = segments.reduce((s, x) => s + x.value, 0);
       if (grandTotal > 0) {
@@ -1233,7 +1290,7 @@ function saveData() { updateHistoryPoint(); pruneHistory(); localStorage.setItem
         allLeg.innerHTML = segments.map(x =>
           `<div class="alloc-leg-item">
             <div class="alloc-dot" style="background:${x.color}; ${x.isDebt ? 'opacity:0.55;' : ''}"></div>
-            <span>${x.name}</span>
+            <span>${x.name}${x.isRetirement ? ' 🔒' : ''}</span>
             <span style="color:var(--text-3);">${(x.value/grandTotal*100).toFixed(0)}%</span>
           </div>`
         ).join('');
@@ -1278,7 +1335,10 @@ function saveData() { updateHistoryPoint(); pruneHistory(); localStorage.setItem
 
     setSafeHTML('assetsList', assetsArr.length === 0 ? `<div style="padding:30px;text-align:center;color:var(--text-3);font-weight:600;">No assets added.</div>` : assetsArr.map(a => `
       <button class="lrow" onclick="openAccountModal('${a.id}')">
-        <div class="lrow-left"><div class="lrow-title">${a.name}</div><div class="lrow-sub">${a.rate ? a.rate + '% APY' : 'Standard'}</div></div>
+        <div class="lrow-left">
+          <div class="lrow-title">${a.name}</div>
+          <div class="lrow-sub">${a.isRetirement ? '<span class="retirement-badge"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg> Retirement</span>' : (a.rate ? a.rate + '% APY' : 'Standard')}</div>
+        </div>
         <div class="lrow-right"><div class="lrow-val">${formatMoney(a.balance)}</div></div>
       </button>`).join(''));
 
@@ -1667,9 +1727,9 @@ function saveData() { updateHistoryPoint(); pruneHistory(); localStorage.setItem
       } else if (type === 'transfer') {
           titleEl.innerText = "Transfer Between Accounts";
           if (assets.length < 2) return toast("Need at least 2 asset accounts to transfer between.");
-          const srcOpts  = assets.map(a => `<option value="${a.id}">${a.name} (${formatMoney(a.balance)})</option>`).join('');
-          // Pre-select a different account for destination
-          const destOpts = assets.map((a, i) => `<option value="${a.id}" ${i === 1 ? 'selected' : ''}>${a.name} (${formatMoney(a.balance)})</option>`).join('');
+          const label = a => `${a.name}${a.isRetirement ? ' 🔒' : ''} (${formatMoney(a.balance)})`;
+          const srcOpts  = assets.map(a => `<option value="${a.id}">${label(a)}</option>`).join('');
+          const destOpts = assets.map((a, i) => `<option value="${a.id}" ${i === 1 ? 'selected' : ''}>${label(a)}</option>`).join('');
           html = `
               <div class="insight-body" style="margin-bottom: 20px;">Move cash between accounts. Net worth stays unchanged — this just repositions your money.</div>
               <div class="field-label">Amount ($)</div>
@@ -1807,17 +1867,23 @@ function saveData() { updateHistoryPoint(); pruneHistory(); localStorage.setItem
 
   window.openAccountModal = function(typeOrId) {
     document.getElementById('accountForm').reset(); const dBtn = document.getElementById('deleteAccountBtn');
+    const retRow = document.getElementById('accountRetirementRow');
     if (typeOrId === 'asset' || typeOrId === 'liability') {
       setSafeText('accountModalTitle', 'Add Account'); document.getElementById('accountId').value = ''; document.getElementById('accountIsLiability').value = typeOrId === 'liability' ? 'true' : 'false'; if(dBtn) dBtn.style.display = 'none';
+      if (retRow) retRow.style.display = typeOrId === 'liability' ? 'none' : 'flex';
     } else {
       const a = (state.accounts||[]).find(x => x && x.id === typeOrId); if(!a) return;
-      setSafeText('accountModalTitle', 'Edit Account'); document.getElementById('accountId').value = a.id; document.getElementById('accountIsLiability').value = a.isLiability ? 'true' : 'false'; document.getElementById('accountName').value = a.name; document.getElementById('accountBalance').value = a.balance; document.getElementById('accountRate').value = a.rate || ''; if(dBtn) dBtn.style.display = 'block';
+      setSafeText('accountModalTitle', 'Edit Account'); document.getElementById('accountId').value = a.id; document.getElementById('accountIsLiability').value = a.isLiability ? 'true' : 'false'; document.getElementById('accountName').value = a.name; document.getElementById('accountBalance').value = a.balance; document.getElementById('accountRate').value = a.rate || '';
+      document.getElementById('accountIsRetirement').checked = a.isRetirement || false;
+      if (retRow) retRow.style.display = a.isLiability ? 'none' : 'flex';
+      if(dBtn) dBtn.style.display = 'block';
     }
     showModal('accountModal');
   }
   window.saveAccount = function(e) {
     e.preventDefault(); const id = document.getElementById('accountId').value || generateId();
-    const newAcc = { id, name: document.getElementById('accountName').value, balance: parseFloat(document.getElementById('accountBalance').value) || 0, rate: parseFloat(document.getElementById('accountRate').value) || 0, isLiability: document.getElementById('accountIsLiability').value === 'true' };
+    const isLiability = document.getElementById('accountIsLiability').value === 'true';
+    const newAcc = { id, name: document.getElementById('accountName').value, balance: parseFloat(document.getElementById('accountBalance').value) || 0, rate: parseFloat(document.getElementById('accountRate').value) || 0, isLiability, isRetirement: !isLiability && (document.getElementById('accountIsRetirement')?.checked || false) };
     if(!state.accounts) state.accounts = []; const idx = state.accounts.findIndex(x => x && x.id === id); if (idx > -1) state.accounts[idx] = newAcc; else state.accounts.push(newAcc); saveData(); renderWealth(); closeAllModals(); toast('Account saved');
   }
   window.deleteAccount = function() { if(confirm('Delete account?')) { state.accounts = state.accounts.filter(a => a && a.id !== document.getElementById('accountId').value); saveData(); renderWealth(); closeAllModals(); toast('Account deleted'); } }
