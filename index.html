@@ -833,6 +833,7 @@
       <div class="lgroup" style="margin: 0 0 24px 0;">
         <button class="lrow" id="btn-export-data"><div class="lrow-left"><div class="lrow-title">Export Backup (JSON)</div></div></button>
         <label class="lrow" style="cursor:pointer;"><div class="lrow-left"><div class="lrow-title">Import Backup</div></div><input type="file" id="input-import-data" accept=".json" style="display:none;"></label>
+        <button class="lrow" onclick="haptic([10]); removeDuplicates()"><div class="lrow-left"><div class="lrow-title" style="color: var(--warning);">Find & Remove Duplicates</div></div></button>
         <button class="lrow" id="btn-clear-data"><div class="lrow-left"><div class="lrow-title" style="color: var(--pass);">Clear Local Data</div></div></button>
       </div>
     </div>
@@ -2159,6 +2160,39 @@ Instructions:
     } ret.push(value.trim()); return ret;
   }
 
+  window.removeDuplicates = function() {
+      if (!confirm("This will scan your entire history for exact duplicates (Date + Merchant + Amount) and remove the newest/uncategorized ones. Proceed?")) return;
+      
+      let txMap = {};
+      let toKeep = [];
+      let removed = 0;
+
+      // Sort so AI-categorized transactions are processed first and kept!
+      let sortedTxs = [...state.transactions].sort((a, b) => {
+          const aIsDefault = (a.category === 'Other' || a.category === 'Subscriptions') ? 1 : 0;
+          const bIsDefault = (b.category === 'Other' || b.category === 'Subscriptions') ? 1 : 0;
+          return aIsDefault - bIsDefault;
+      });
+
+      sortedTxs.forEach(t => {
+          if(!t) return;
+          const hash = `${t.date}-${t.merchant.replace(/\s/g, '').toLowerCase()}-${t.amount}`;
+          if (!txMap[hash]) {
+              txMap[hash] = 1;
+              toKeep.push(t);
+          } else {
+              removed++;
+          }
+      });
+
+      if (removed > 0) {
+          state.transactions = toKeep;
+          saveData(); renderAll(); haptic([15, 30, 15]);
+      }
+      closeAllModals();
+      toast(`Cleaned up ${removed} duplicates!`);
+  }
+
   window.handleCSVUpload = function(e) {
     const file = e.target.files[0]; if (!file) return;
     const reader = new FileReader();
@@ -2174,6 +2208,15 @@ Instructions:
 
           let newTxs = []; let duplicates = 0; let monthCounts = {};
           const subNames = (state.subs||[]).map(s => s && s.name ? s.name.toLowerCase() : '');
+
+          // Pre-calculate occurrences in existing state to allow legitimate identical purchases
+          const existingCounts = {};
+          (state.transactions||[]).forEach(t => {
+              if(!t) return;
+              const h = `${t.date}-${t.merchant.replace(/\s/g, '').toLowerCase()}-${t.amount}`;
+              existingCounts[h] = (existingCounts[h] || 0) + 1;
+          });
+          let newCounts = {};
 
           for (let i = 1; i < lines.length; i++) {
             const row = parseCSVLine(lines[i]); if (row.length <= Math.max(dateIdx, amtIdx)) continue;
@@ -2201,9 +2244,22 @@ Instructions:
                 }
             }
 
-            const uniqueId = `${safeDate}-${rawMerchant.replace(/\s/g, '')}-${amount}-${i}`;
-            if (state.transactions.some(t => t && t.id === uniqueId) || newTxs.some(t => t && t.id === uniqueId)) { duplicates++; continue; }
+            // Smart Hash: Ignores CSV row numbers
+            const baseHash = `${safeDate}-${merchant.replace(/\s/g, '').toLowerCase()}-${amount}`;
+            const existCount = existingCounts[baseHash] || 0;
+            const newCount = newCounts[baseHash] || 0;
 
+            // If we have seen this fewer times in the CSV than we already have saved, it's a duplicate import!
+            if (newCount < existCount) {
+                newCounts[baseHash] = newCount + 1;
+                duplicates++;
+                continue;
+            }
+
+            // Otherwise, it's genuinely new
+            newCounts[baseHash] = newCount + 1;
+            const uniqueId = `${baseHash}-${Date.now()}-${i}`;
+            
             newTxs.push({ id: uniqueId, date: safeDate, month: safeDate.substring(0,7), merchant, category: categoryStr, note: '', amount, isExcluded });
             monthCounts[safeDate.substring(0,7)] = (monthCounts[safeDate.substring(0,7)] || 0) + 1;
           }
