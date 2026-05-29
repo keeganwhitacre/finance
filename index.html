@@ -353,6 +353,29 @@
     .goal-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; margin: 0 20px 24px; }
     .goal-card { background: var(--bg-surface); border: 0.5px solid var(--border); border-radius: 20px; padding: 16px; box-shadow: 0 4px 16px rgba(0,0,0,0.03); display: flex; flex-direction: column; cursor: pointer; transition: transform 0.15s var(--spring); position: relative; overflow: hidden;}
     .goal-card:active { transform: scale(0.96); }
+
+    /* ── Period toggle (inside hero card) ── */
+    .period-btn {
+      font-size: 11px; font-weight: 800; padding: 3px 9px; border-radius: 8px;
+      color: rgba(150,150,160,0.7); background: transparent;
+      letter-spacing: 0.05em; text-transform: uppercase; border: none; cursor: pointer;
+      transition: background 0.15s, color 0.15s;
+    }
+    .period-btn.active { background: rgba(255,255,255,0.18); color: var(--text-1); }
+    [data-theme="dark"] .period-btn.active { background: rgba(255,255,255,0.12); }
+
+    /* ── Net worth delta badge ── */
+    .nw-delta { font-size: 13px; font-weight: 700; letter-spacing: -0.01em; margin-top: 3px; min-height: 18px; }
+    .nw-delta.up   { color: var(--loved); }
+    .nw-delta.down { color: var(--pass); }
+    .nw-delta.flat { color: var(--text-3); }
+
+    /* ── Allocation bar ── */
+    .alloc-wrap { margin: -4px 20px 20px; padding: 14px 16px; background: var(--bg-surface); border-radius: 16px; border: 0.5px solid var(--border); box-shadow: 0 4px 20px rgba(0,0,0,0.03); }
+    .alloc-bar { display: flex; height: 10px; border-radius: 6px; overflow: hidden; background: var(--bg-input); width: 100%; }
+    .alloc-legend { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 10px; }
+    .alloc-leg-item { display: flex; align-items: center; gap: 5px; font-size: 11px; font-weight: 700; color: var(--text-2); }
+    .alloc-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
   </style>
 </head>
 <body>
@@ -386,7 +409,17 @@
     <!-- ================= VIEW: WEALTH ================= -->
     <div id="view-wealth" class="view">
       <div class="active-hero hero-wealth" onclick="haptic([10]); openAccountModal('asset')">
-        <div><div class="hero-eyebrow">Total Net Worth</div><div id="dashNetWorth" class="hero-title-big">$0.00</div></div>
+        <div>
+          <div class="hero-eyebrow">Total Net Worth</div>
+          <div id="dashNetWorth" class="hero-title-big">$0.00</div>
+          <div id="dashNetWorthDelta" class="nw-delta flat">—</div>
+        </div>
+        <!-- Period toggle — stopPropagation so it doesn't fire the card's add-account onclick -->
+        <div style="display:flex; justify-content:flex-end; gap:2px; margin-top:6px;" onclick="event.stopPropagation()">
+          <button class="period-btn active" id="periodBtn7"  onclick="setChartPeriod(7)">7D</button>
+          <button class="period-btn"        id="periodBtn30" onclick="setChartPeriod(30)">30D</button>
+          <button class="period-btn"        id="periodBtn90" onclick="setChartPeriod(90)">90D</button>
+        </div>
         <div class="chart-container" id="netWorthChartContainer"><svg class="chart-svg" preserveAspectRatio="none"></svg></div>
         <div class="hero-stats-row">
           <div style="flex: 1;"><div class="hero-eyebrow">Assets</div><div id="dashTotalAssets" class="hero-stat-val text-loved">$0.00</div></div>
@@ -394,8 +427,25 @@
         </div>
       </div>
       <div class="setup-block" style="margin-top: -8px;">
-        <div class="setup-card"><div class="setup-label">Liquid Runway</div><div id="dashRunway" style="font-size: 22px; font-weight: 800; color: var(--text-1);">0 Mos</div></div>
-        <div class="setup-card"><div class="setup-label">Asset to Debt Ratio</div><div id="dashRatio" style="font-size: 22px; font-weight: 800; color: var(--text-1);">0.0x</div></div>
+        <div class="setup-card" style="flex:1;">
+          <div class="setup-label">Liquid Runway</div>
+          <div id="dashRunway" style="font-size: 20px; font-weight: 800; color: var(--text-1);">0 Mos</div>
+        </div>
+        <div class="setup-card" style="flex:1;">
+          <div class="setup-label">Asset / Debt</div>
+          <div id="dashRatio" style="font-size: 20px; font-weight: 800; color: var(--text-1);">0.0x</div>
+        </div>
+        <div class="setup-card" style="flex:1;">
+          <div class="setup-label">Month Δ</div>
+          <div id="dashMonthDelta" style="font-size: 20px; font-weight: 800; color: var(--text-3);">--</div>
+        </div>
+      </div>
+
+      <!-- Portfolio Allocation Bar -->
+      <div class="alloc-wrap" id="allocationBarWrap" style="display:none;">
+        <div style="font-size:11px; font-weight:800; text-transform:uppercase; letter-spacing:0.06em; color:var(--text-3); margin-bottom:8px;">Portfolio Allocation</div>
+        <div class="alloc-bar" id="allocationBar"></div>
+        <div class="alloc-legend" id="allocationLegend"></div>
       </div>
 
       <!-- SMART ACTIONS WIDGET -->
@@ -417,6 +467,11 @@
         <button class="setup-card" onclick="haptic([10]); openRoutineModal('yield')" style="padding: 16px 12px; align-items: center; border: none; box-shadow: 0 4px 12px rgba(0,0,0,0.03); margin:0;">
           <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="var(--epub)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="margin-bottom: 8px;"><path d="M21 12V7H5a2 2 0 0 1 0-4h14v4"/><path d="M3 5v14a2 2 0 0 0 2 2h16v-5"/><path d="M18 12a2 2 0 0 0 0 4h4v-4Z"/></svg>
           <div style="font-size: 13px; font-weight: 700; color: var(--text-1);">Log Yield</div>
+        </button>
+        <!-- TRANSFER BETWEEN ACCOUNTS -->
+        <button class="setup-card" onclick="haptic([10]); openRoutineModal('transfer')" style="padding: 16px 12px; align-items: center; border: none; box-shadow: 0 4px 12px rgba(0,0,0,0.03); margin:0;">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="margin-bottom: 8px;"><path d="m16 3 4 4-4 4"/><path d="M20 7H4"/><path d="m8 21-4-4 4-4"/><path d="M4 17h16"/></svg>
+          <div style="font-size: 13px; font-weight: 700; color: var(--text-1);">Transfer</div>
         </button>
       </div>
 
@@ -901,9 +956,19 @@ function updateContentPadding() {
     ]
   };
   let appSettings = { theme: 'auto', geminiKey: '', githubToken: '', gistId: '' };
+  let chartPeriod = 14; // default; updated by setChartPeriod()
 
   const formatMoney = (num) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(num || 0);
   const generateId = () => Math.random().toString(36).substr(2, 9);
+
+  window.setChartPeriod = function(n) {
+    chartPeriod = n;
+    [7, 30, 90].forEach(p => {
+      const btn = document.getElementById(`periodBtn${p}`);
+      if (btn) btn.classList.toggle('active', p === n);
+    });
+    renderHistoryChart();
+  };
 
   // --- INIT & DATA CLEANSING ---
   function loadData() {
@@ -1046,8 +1111,8 @@ function saveData() { updateHistoryPoint(); pruneHistory(); localStorage.setItem
     const historyKeys = Object.keys(state.netWorthHistory).sort();
     if (historyKeys.length < 2) { if(historyKeys.length===1) { const v = state.netWorthHistory[historyKeys[0]]; historyKeys.unshift("Start"); state.netWorthHistory["Start"] = v * 0.95; } else { svg.innerHTML = ''; return; } }
 
-    const data = historyKeys.slice(-14).map(k => state.netWorthHistory[k]); 
-    const max = Math.max(...data) * 1.05; const min = Math.min(0, Math.min(...data)); const range = (max - min) || 1;
+    const data = historyKeys.slice(-chartPeriod).map(k => state.netWorthHistory[k]); 
+    const max = Math.max(...data) * 1.02; const min = Math.min(...data) * 0.98; const range = (max - min) || 1;
     const w = 300; const h = 80; const dx = w / (data.length - 1);
     let pathD = `M 0 ${h - ((data[0] - min) / range) * h}`; let fillD = `M 0 ${h} L 0 ${h - ((data[0] - min) / range) * h}`; let dots = '';
 
@@ -1109,6 +1174,73 @@ function saveData() { updateHistoryPoint(); pruneHistory(); localStorage.setItem
     setSafeText('dashTotalAssets', formatMoney(totalAssets));
     setSafeText('dashTotalDebt', formatMoney(totalDebt));
     renderHistoryChart();
+
+    // --- NET WORTH DELTAS ---
+    const currentNW = totalAssets - totalDebt;
+    const todayStr = getLocalISODate();
+    const histKeys = Object.keys(state.netWorthHistory || {}).sort();
+
+    // Yesterday delta (on the hero card)
+    const deltaEl = document.getElementById('dashNetWorthDelta');
+    if (deltaEl) {
+      const prevKeys = histKeys.filter(k => k.slice(0, 10) < todayStr);
+      if (prevKeys.length > 0) {
+        const prevVal = state.netWorthHistory[prevKeys[prevKeys.length - 1]];
+        const diff = currentNW - prevVal;
+        const sign = diff >= 0 ? '+' : '';
+        deltaEl.className = `nw-delta ${diff > 50 ? 'up' : diff < -50 ? 'down' : 'flat'}`;
+        deltaEl.textContent = `${sign}${formatMoney(diff)} since yesterday`;
+      } else {
+        deltaEl.className = 'nw-delta flat';
+        deltaEl.textContent = '—';
+      }
+    }
+
+    // Month delta (stat tile)
+    const monthDeltaEl = document.getElementById('dashMonthDelta');
+    if (monthDeltaEl) {
+      const [yr, mo] = todayStr.split('-');
+      const firstOfMonth = `${yr}-${mo}-01`;
+      const preMonthKeys = histKeys.filter(k => k.slice(0, 10) < firstOfMonth);
+      if (preMonthKeys.length > 0) {
+        const monthStartVal = state.netWorthHistory[preMonthKeys[preMonthKeys.length - 1]];
+        const diff = currentNW - monthStartVal;
+        const sign = diff >= 0 ? '+' : '';
+        monthDeltaEl.textContent = sign + formatMoney(diff);
+        monthDeltaEl.style.color = diff > 50 ? 'var(--loved)' : diff < -50 ? 'var(--pass)' : 'var(--text-3)';
+      } else {
+        monthDeltaEl.textContent = '--';
+        monthDeltaEl.style.color = 'var(--text-3)';
+      }
+    }
+
+    // --- ALLOCATION BAR ---
+    const ALLOC_COLORS = ['#5e5ce6','#0a84ff','#30d158','#ff9f0a','#bf5af2','#32ade6','#ffd60a','#ff6b6b'];
+    const allBar  = document.getElementById('allocationBar');
+    const allLeg  = document.getElementById('allocationLegend');
+    const allWrap = document.getElementById('allocationBarWrap');
+    if (allBar && allLeg && allWrap) {
+      const segments = [
+        ...assetsArr.map((a, i) => ({ name: a.name, value: Math.max(0, parseFloat(a.balance)||0), color: ALLOC_COLORS[i % ALLOC_COLORS.length], isDebt: false })),
+        ...debtsArr.map(a =>        ({ name: a.name, value: Math.max(0, parseFloat(a.balance)||0), color: 'var(--pass)',  isDebt: true  }))
+      ].filter(x => x.value > 0);
+      const grandTotal = segments.reduce((s, x) => s + x.value, 0);
+      if (grandTotal > 0) {
+        allWrap.style.display = '';
+        allBar.innerHTML = segments.map(x =>
+          `<div style="width:${(x.value/grandTotal*100).toFixed(2)}%; background:${x.color}; ${x.isDebt ? 'opacity:0.55;' : ''}"></div>`
+        ).join('');
+        allLeg.innerHTML = segments.map(x =>
+          `<div class="alloc-leg-item">
+            <div class="alloc-dot" style="background:${x.color}; ${x.isDebt ? 'opacity:0.55;' : ''}"></div>
+            <span>${x.name}</span>
+            <span style="color:var(--text-3);">${(x.value/grandTotal*100).toFixed(0)}%</span>
+          </div>`
+        ).join('');
+      } else {
+        allWrap.style.display = 'none';
+      }
+    }
 
     const monthlyBurn = Object.values(state.budgets || {}).reduce((s, v) => s + (v||0), 0) + (state.subs || []).reduce((s, x) => s + (x.cost||0), 0);
     setSafeText('dashRunway', `${monthlyBurn > 0 ? (totalAssets / monthlyBurn).toFixed(1) : 0} Mos`);
@@ -1532,6 +1664,22 @@ function saveData() { updateHistoryPoint(); pruneHistory(); localStorage.setItem
               <select id="routineDest" class="edit-field" style="appearance: none; margin-bottom: 32px;">${options}</select>
               <button class="btn-primary" onclick="haptic([15]); executeRoutine('fundGoal')" style="background: var(--accent);">Allocate Funds</button>
           `;
+      } else if (type === 'transfer') {
+          titleEl.innerText = "Transfer Between Accounts";
+          if (assets.length < 2) return toast("Need at least 2 asset accounts to transfer between.");
+          const srcOpts  = assets.map(a => `<option value="${a.id}">${a.name} (${formatMoney(a.balance)})</option>`).join('');
+          // Pre-select a different account for destination
+          const destOpts = assets.map((a, i) => `<option value="${a.id}" ${i === 1 ? 'selected' : ''}>${a.name} (${formatMoney(a.balance)})</option>`).join('');
+          html = `
+              <div class="insight-body" style="margin-bottom: 20px;">Move cash between accounts. Net worth stays unchanged — this just repositions your money.</div>
+              <div class="field-label">Amount ($)</div>
+              <input type="number" id="routineAmt" step="0.01" class="edit-field" placeholder="0.00" style="margin-bottom: 20px; font-size: 24px; font-weight: 800; color: var(--text-1);" />
+              <div class="field-label">From</div>
+              <select id="routineSrc" class="edit-field" style="appearance: none; margin-bottom: 20px;">${srcOpts}</select>
+              <div class="field-label">To</div>
+              <select id="routineDest" class="edit-field" style="appearance: none; margin-bottom: 32px;">${destOpts}</select>
+              <button class="btn-primary" onclick="haptic([15]); executeRoutine('transfer')" style="background: var(--accent);">Confirm Transfer</button>
+          `;
       }
       bodyEl.innerHTML = html;
       showModal('routineModal');
@@ -1574,6 +1722,19 @@ function saveData() { updateHistoryPoint(); pruneHistory(); localStorage.setItem
               goal.savedAmount = (goal.savedAmount || 0) + amt;
               saveData(); renderWealth(); renderAudit(); toast(`Allocated ${formatMoney(amt)} to ${goal.name}`);
           }
+      } else if (type === 'transfer') {
+          const amt   = parseFloat(document.getElementById('routineAmt').value) || 0;
+          const srcId  = document.getElementById('routineSrc').value;
+          const destId = document.getElementById('routineDest').value;
+          if (srcId === destId) return toast("Source and destination must be different accounts.");
+          const srcAcc  = state.accounts.find(a => a.id === srcId);
+          const destAcc = state.accounts.find(a => a.id === destId);
+          if (!srcAcc || !destAcc || amt <= 0) return toast("Invalid transfer details.");
+          if (srcAcc.balance < amt) return toast(`Insufficient balance in ${srcAcc.name}.`);
+          srcAcc.balance  -= amt;
+          destAcc.balance += amt;
+          saveData(); renderWealth();
+          toast(`Transferred ${formatMoney(amt)} → ${destAcc.name}`);
       }
       closeAllModals();
   }
