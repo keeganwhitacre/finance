@@ -1046,7 +1046,10 @@ function saveData() { updateHistoryPoint(); pruneHistory(); localStorage.setItem
     if (!state.netWorthHistory) return;
     // Collapse multiple saves per day to one (latest wins), keep 90 days
     const byDate = {};
-    Object.keys(state.netWorthHistory).sort().forEach(key => {
+    Object.keys(state.netWorthHistory)
+      .filter(k => /^20\d{2}-\d{2}-\d{2}/.test(k)) // strictly filter out ANY garbage string keys
+      .sort()
+      .forEach(key => {
         byDate[key.split('T')[0]] = state.netWorthHistory[key];
     });
     const trimmed = Object.keys(byDate).sort().slice(-90);
@@ -1129,10 +1132,24 @@ function saveData() { updateHistoryPoint(); pruneHistory(); localStorage.setItem
   // --- CHARTS & PACING ---
   function renderHistoryChart() {
     const svg = document.querySelector('.chart-svg'); if (!svg || !state.netWorthHistory) return;
-    const historyKeys = Object.keys(state.netWorthHistory).sort();
-    if (historyKeys.length < 2) { if(historyKeys.length===1) { const v = state.netWorthHistory[historyKeys[0]]; historyKeys.unshift("Start"); state.netWorthHistory["Start"] = v * 0.95; } else { svg.innerHTML = ''; return; } }
+    
+    // Aggressively scrub the graph keys so no non-date strings drag the dot down
+    const historyKeys = Object.keys(state.netWorthHistory)
+        .filter(k => /^20\d{2}-\d{2}-\d{2}/.test(k))
+        .sort();
 
-    const data = historyKeys.slice(-chartPeriod).map(k => state.netWorthHistory[k]); 
+    if (historyKeys.length === 0) {
+        svg.innerHTML = ''; return;
+    }
+
+    let data = historyKeys.slice(-chartPeriod).map(k => state.netWorthHistory[k]); 
+    
+    // If only 1 data point, prepend a synthetic value to the array for rendering so we can draw a line
+    // This no longer pollutes the saved `state` dataset
+    if (data.length === 1) {
+        data.unshift(data[0] * 0.95);
+    }
+
     // In liquid mode, subtract current retirement balance from all history points as approximation
     // (valid because retirement balances change slowly via manual updates)
     const liquidOffset = wealthViewMode === 'liquid'
@@ -1218,7 +1235,9 @@ function saveData() { updateHistoryPoint(); pruneHistory(); localStorage.setItem
     // --- NET WORTH DELTAS ---
     const currentNW = displayNW;
     const todayStr = getLocalISODate();
-    const histKeys = Object.keys(state.netWorthHistory || {}).sort();
+    const histKeys = Object.keys(state.netWorthHistory || {})
+        .filter(k => /^20\d{2}-\d{2}-\d{2}/.test(k))
+        .sort();
 
     // Yesterday delta (on the hero card)
     const deltaEl = document.getElementById('dashNetWorthDelta');
